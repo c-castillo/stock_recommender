@@ -33,6 +33,10 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# WhatsApp local session + sqlite (never commit)
+.whatsapp/
+.wwebjs_cache/
+
 # vercel
 .vercel
 
