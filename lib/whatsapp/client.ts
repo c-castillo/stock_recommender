@@ -17,7 +17,10 @@ import { downloadAndSave } from "./media";
 
 // Session (Puppeteer user data dir) lives OUTSIDE the project so Turbopack's
 // file watcher never encounters Chromium's Unix socket files.
-const SESSION_DIR = path.join(os.homedir(), ".stock-recommender-wa");
+const SESSION_DIR =
+  process.env.NODE_ENV === "production"
+    ? "/tmp/.stock-recommender-wa"
+    : path.join(os.homedir(), ".stock-recommender-wa");
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
