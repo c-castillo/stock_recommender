@@ -2,7 +2,10 @@ import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
 
-const DATA_DIR = path.join(process.cwd(), ".whatsapp");
+const DATA_DIR =
+  process.env.NODE_ENV === "production"
+    ? "/tmp/.whatsapp"
+    : path.join(process.cwd(), ".whatsapp");
 const DB_PATH = path.join(DATA_DIR, "messages.db");
 
 if (!fs.existsSync(DATA_DIR)) {
