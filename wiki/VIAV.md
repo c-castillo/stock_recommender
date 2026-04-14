@@ -39,3 +39,33 @@
 **Reasoning:** Network test & measurement infrastructure plays directly into DCI/optical build thesis. MM200 ↑+15.65% — strong slope. Near target at $41.36. P&L +$224. At near-target consider trailing stop tightening.
 
 ---
+
+## 2026-04-09
+
+**Action:** HOLD (confidence: 72%)
+**Entry:** $32.52 | **Target:** $42.00 | **Stop:** 12%
+**Mentions:** 3 | **Sources:** Prior analysis, DCI thesis consistency
+
+**Reasoning:** Network test/measurement infrastructure enables DCI buildout. MM200 +15.91% strong slope. P&L +$224. Consistent with DCI infrastructure basket.
+
+---
+
+## 2026-04-10
+
+**Action:** HOLD (confidence: 68%)
+**Entry:** $32.52 | **Target:** $52.00 | **Stop:** 12%
+**Mentions:** 3 | **Sources:** Dr CS DCI basket, MS DCI thesis
+
+**Reasoning:** Network test/measurement for DCI. MM200 +16.19%. P&L +$285. Price $43.81 above prior $42 target — revise to $52. Consider trimming position to reduce concentration in DCI basket given 6 names already.
+
+---
+
+## 2026-04-11
+
+**Action:** HOLD (confidence: 68%)
+**Entry:** $32.52 | **Target:** $52 | **Stop:** 12%
+**Mentions:** 3 | **Sources:** Dr. CS WhatsApp, Prior analysis history
+
+**Reasoning:** Network test/measurement for DCI. MM200 +16.19% (not in current portfolio but was in prior analysis). Price exceeded prior $42 target — revised to $52. DCI optical thesis applies. Not currently in Zesty portfolio based on holdings provided.
+
+---
