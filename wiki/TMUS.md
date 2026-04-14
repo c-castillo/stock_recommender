@@ -19,3 +19,43 @@
 **Reasoning:** the main analyst April 6: 'TMUS 182→161 risk' — ~11% downside. Telecom facing higher capex costs from optical/network buildout. Not in portfolio — note for avoidance.
 
 ---
+
+## 2026-04-09
+
+**Action:** SELL (confidence: 62%)
+**Target:** $161.00
+**Mentions:** 3 | **Sources:** the main analyst Apr 6
+
+**Reasoning:** the main analyst Apr 6: 'TMUS 182→161 risk' — ~11% downside target. Telecom facing higher capex from optical/network infrastructure buildout costs. Not in portfolio — noted for reference.
+
+---
+
+## 2026-04-10
+
+**Action:** SELL (confidence: 62%)
+**Target:** $161.00
+**Mentions:** 3 | **Sources:** the main analyst Apr 6
+
+**Reasoning:** the main analyst Apr 6: 'TMUS 182→161 risk' — 11% explicit downside target. Telecom facing higher capex from network infrastructure buildout while consumer spending under pressure. Not in portfolio — alert only.
+
+---
+
+## 2026-04-11
+
+**Action:** SELL (confidence: 65%)
+**Target:** $161
+**Mentions:** 4 | **Sources:** the main analyst WhatsApp Apr 6, GS TMT Spec Sales PDF
+
+**Reasoning:** the main analyst Apr 6: 'TMUS 182→161 risk' — 11% explicit downside target. Telecom facing higher capex from network infrastructure needs while consumers face purchasing power squeeze. Not in portfolio. GS TMT Spec Sales report had Nokia upgrade context which implicitly pressures TMUS competitive positioning.
+
+---
+
+## 2026-04-13
+
+**Action:** SELL (confidence: 65%)
+**Target:** $161
+**Mentions:** 3 | **Sources:** the main analyst message Apr 6 'TMUS 182→161 risk', GS TMT Spec Sales report (shared in community Apr 6)
+
+**Reasoning:** the main analyst Apr 6: 'TMUS 182→161 risk' — explicit 11% downside target. Telecom facing higher capex from network infrastructure demands. GS TMT report mentioned TMUS context around Nokia upgrade. Not in portfolio. Avoid/short via inverse ETF if desired.
+
+---

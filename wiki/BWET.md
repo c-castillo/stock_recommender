@@ -39,3 +39,13 @@
 **Reasoning:** the main analyst highest conviction tanker/freight play with multiple Bloomberg chart confirmations April 3. Hormuz effectively closed — 13 mbd shortfall (JPM). Iran strategy: outlast not outgun — prolonged disruption. BWET outperforming underlying BWETFF index (leveraged). MM200 ↑+41.41% — strongest structural slope in portfolio. Unrealized loss -$142 is noise in a highly volatile leveraged freight ETF. Fundamental thesis entirely intact: if anything the JPM report (April 6) makes the case MORE compelling with 6-month timeline for full flow restoration.
 
 ---
+
+## 2026-04-09
+
+**Action:** HOLD (confidence: 82%)
+**Entry:** $141.96 | **Target:** $200.00 | **Stop:** $95.00
+**Mentions:** 11 | **Sources:** the main analyst Apr 3, JPM Geopolitical Perspectives Apr 6, Amplify BWET factsheet
+
+**Reasoning:** the main analyst highest conviction tanker/freight play — 'jfc BWET' emphatic Apr 3. JPM Geopolitical Perspectives: Hormuz shortfall 13 mbd, Iran strategy to outlast = prolonged disruption. Selective passage only for friendly nations. MM200 +42.82% extraordinary. P&L negative but structural thesis intact and the main analyst has not wavered.
+
+---

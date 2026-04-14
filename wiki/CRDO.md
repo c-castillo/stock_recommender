@@ -39,3 +39,33 @@
 **Reasoning:** the main analyst most explicit defense of this name: 'Why would you put CRDO in a Short leg?' Highest quality connectivity semiconductor for data center networking. Community analysis shows +112% upside vs consensus targets. MM200 ↑+2.69% — weak slope is the one concern. P&L +$109. Hold on the main analyst conviction despite weak MM200.
 
 ---
+
+## 2026-04-09
+
+**Action:** HOLD (confidence: 78%)
+**Entry:** $91.79 | **Target:** $150.00 | **Stop:** 12%
+**Mentions:** 8 | **Sources:** the main analyst Apr 3, community Apr 3
+
+**Reasoning:** the main analyst explicitly defended: 'Why would you put CRDO in a Short leg?' — highest quality connectivity semiconductor. Community VIMEO video shows optical/connectivity use cases. MM200 +2.58% weak but positive. P&L +$109.
+
+---
+
+## 2026-04-10
+
+**Action:** HOLD (confidence: 78%)
+**Entry:** $91.79 | **Target:** $150.00 | **Stop:** 12%
+**Mentions:** 4 | **Sources:** the main analyst explicit defense
+
+**Reasoning:** the main analyst explicitly defended: 'Why would you put CRDO in a Short leg?' Highest quality connectivity semiconductor for DCI. MM200 +2.45% — weakest technical slope in the optical basket but fundamental thesis intact.
+
+---
+
+## 2026-04-11
+
+**Action:** HOLD (confidence: 80%)
+**Entry:** $91.79 | **Target:** $150 | **Stop:** 12%
+**Mentions:** 5 | **Sources:** the main analyst WhatsApp, Watchlist image
+
+**Reasoning:** the main analyst explicitly defended CRDO: 'Why would you put CRDO in a Short leg?' — highest quality connectivity semiconductor for DCI. MM200 +2.36% (weakest in optical/connectivity group but still positive). P&L +$139. Thesis: DCI connectivity demand structural, not cyclical.
+
+---

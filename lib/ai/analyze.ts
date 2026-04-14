@@ -4,12 +4,47 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
+import fs from "fs";
+import path from "path";
 import { loadContent } from "./content-loader";
 import { listPortfolio, getCashBalance } from "@/lib/whatsapp/db";
 import { fetchMa200Slopes } from "@/lib/ma200";
 import { loadAllWikis, updateWikiEntry } from "./wiki";
 
 const client = new Anthropic();
+
+// ── Current price fetcher ─────────────────────────────────────────────────────
+
+async function fetchCurrentPrices(
+  tickers: string[]
+): Promise<Record<string, number | null>> {
+  const prices: Record<string, number | null> = {};
+  for (const t of tickers) prices[t] = null;
+  if (tickers.length === 0) return prices;
+
+  try {
+    const symbols = tickers.join(",");
+    const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbols)}&fields=regularMarketPrice`;
+    const res = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0" },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const results: any[] = data?.quoteResponse?.result ?? [];
+      for (const q of results) {
+        const sym = (q.symbol as string)?.toUpperCase();
+        if (sym && typeof q.regularMarketPrice === "number") {
+          prices[sym] = q.regularMarketPrice;
+        }
+      }
+    }
+  } catch {
+    /* return nulls on network failure */
+  }
+
+  return prices;
+}
 
 // ── System prompt ─────────────────────────────────────────────────────────────
 
@@ -57,10 +92,21 @@ async function buildSystemPrompt(): Promise<string> {
   const positions = listPortfolio();
   const cash = getCashBalance();
 
-  // Fetch MM200 slopes for all portfolio positions
-  const slopes = positions.length > 0
-    ? await fetchMa200Slopes(positions.map((p) => p.ticker))
-    : {};
+  // Collect all tickers: portfolio + wiki files
+  const wikiDir = path.join(process.cwd(), "wiki");
+  const wikiTickers = fs.existsSync(wikiDir)
+    ? fs.readdirSync(wikiDir)
+        .filter((f) => f.endsWith(".md"))
+        .map((f) => f.replace(/\.md$/, "").toUpperCase())
+    : [];
+  const portfolioTickers = positions.map((p) => p.ticker);
+  const allTickers = [...new Set([...portfolioTickers, ...wikiTickers])];
+
+  // Fetch MM200 slopes and current prices in parallel
+  const [slopes, currentPrices] = await Promise.all([
+    positions.length > 0 ? fetchMa200Slopes(portfolioTickers) : Promise.resolve({}),
+    fetchCurrentPrices(allTickers),
+  ]);
 
   let portfolioSection = "\n## Current portfolio\n";
 
@@ -88,9 +134,22 @@ async function buildSystemPrompt(): Promise<string> {
 
   portfolioSection += `\nPortfolio rules: MM200↑ = long bias, MM200↓ = avoid. For existing positions, say add/hold/exit. New buy: check cash sufficiency. Position size between 5%-20% each.  Stop loss: for existing positions with positive P&L use a trailing stop (e.g. "15%"); for new positions use a price level (e.g. "$810").\n`;
 
+  // Build current prices section
+  const priceEntries = Object.entries(currentPrices).filter(([, v]) => v !== null) as [string, number][];
+  let pricesSection = "";
+  if (priceEntries.length > 0) {
+    priceEntries.sort(([a], [b]) => a.localeCompare(b));
+    pricesSection =
+      "\n## Current market prices (live, fetched from Yahoo Finance)\n" +
+      "Use these as today's prices when setting entryPrice for BUY recommendations.\n" +
+      "Ticker|Price\n---|---\n" +
+      priceEntries.map(([t, p]) => `${t}|$${p.toFixed(2)}`).join("\n") +
+      "\n";
+  }
+
   const wikiSection = loadAllWikis();
 
-  return SYSTEM_PROMPT + portfolioSection + (wikiSection ? `\n${wikiSection}` : "");
+  return SYSTEM_PROMPT + portfolioSection + pricesSection + (wikiSection ? `\n${wikiSection}` : "");
 }
 
 // ── Streaming generator ───────────────────────────────────────────────────────
