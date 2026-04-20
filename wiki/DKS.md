@@ -99,3 +99,23 @@
 **Reasoning:** Consumer discretionary facing mixed signals — discount retail benefits from purchasing power squeeze. MM200 +0.85% barely rising. $105 unrealized gain. Hold but tightest trailing stop in portfolio given weakest MM200 momentum.
 
 ---
+
+## 2026-04-15
+
+**Action:** HOLD (confidence: 55%)
+**Entry:** $190.50 | **Target:** $220.00 | **Stop:** 8%
+**Mentions:** 1 | **Sources:** Dr. CS prior analysis, MS OW Apr 7
+
+**Reasoning:** MS OW reaffirmed. MM200 +0.84% — weakest trend in consumer names. $103 unrealized gain. Consumer discretionary faces headwinds. No new signals this week. Hold but stop is close.
+
+---
+
+## 2026-04-15
+
+**Action:** SELL (confidence: 62%)
+
+**Mentions:** 2 | **Sources:** RRG_sector_chart, prior_analysis_history
+
+**Reasoning:** RRG shows S5CONS (Consumer) in Weakening quadrant. MM200 +0.86% essentially flat. Consumer discretionary faces headwinds from elevated oil prices and consumer sentiment deterioration. Has unrealized gain ($106) — trim 2 of 4 shares to lock in partial profit and reduce weakening-sector exposure. Consistent with 'do less of what isn't working.'
+
+---

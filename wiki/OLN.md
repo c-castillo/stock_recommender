@@ -99,3 +99,43 @@
 **Reasoning:** Defense/ammunition demand from $1.5T FY27 defense budget. MM200 +3.52% rising. Small negative P&L (-$7) within stop. ExtremeHurst 'Uptrend' signal on ETN (defense-adjacent). Hold.
 
 ---
+
+## 2026-04-15
+
+**Action:** HOLD (confidence: 55%)
+**Entry:** $28.61 | **Target:** $35.00 | **Stop:** 10%
+**Mentions:** 1 | **Sources:** Dr. CS prior analysis
+
+**Reasoning:** Defense/ammunition tailwind from $1.5T defense budget. MM200 +3.51% rising. Small negative P&L (-$20). No new catalysts this week. Hold with stop at ~$25.75.
+
+---
+
+## 2026-04-15
+
+**Action:** HOLD (confidence: 50%)
+**Entry:** $28.55 | **Target:** $35.00 | **Stop:** $25.16
+**Mentions:** 2 | **Sources:** prior_analysis_history, Trump_NATO_post_image
+
+**Reasoning:** Defense/ammunition tailwind from $1.5T defense budget. MM200 +3.54% barely rising. Small negative P&L (-$32). Trump NATO comments reduce US defense spending urgency and may shift to European procurement — negative for US defense suppliers. Holding with tight stop. Consider exit if closes below $26.
+
+---
+
+## 2026-04-16
+
+**Action:** HOLD (confidence: 52%)
+**Entry:** $28.55 | **Target:** $35.00 | **Stop:** $25.16
+**Mentions:** 3 | **Sources:** Prior analysis history, Portfolio, Defense budget theme
+
+**Reasoning:** Defense/ammunition tailwind from $1.5T defense budget. MM200 +3.54% rising marginally. Small negative P&L (-$29). No new catalysts this week. Geopolitical backdrop (Iran conflict) supports defense/ammo demand. Hold with hard stop at $25.16.
+
+---
+
+## 2026-04-17
+
+**Action:** HOLD (confidence: 50%)
+**Entry:** $28.55 | **Target:** $35.00 | **Stop:** $25.16
+**Mentions:** 2 | **Sources:** Prior analysis history, GS Prime Industrials net sold Apr 2026, MM200 analysis
+
+**Reasoning:** Defense/ammunition tailwind from large defense budgets. MM200 +3.56% barely rising — weakest among HOLD positions. Small negative P&L (-$29, -0.5%). No new catalysts this week. GS Prime shows Industrials as most net sold sector, which weighs on conviction. Holding with tight stop at $25.16. Watch for break below $27 as potential exit signal.
+
+---

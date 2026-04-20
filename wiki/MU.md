@@ -99,3 +99,43 @@
 **Reasoning:** +47.69% YTD on Dr. CS watchlist (+501% 1YR). GS Memory Exposed basket leads at +78.56% YTD. Memory supercycle confirmed by ASML and TSM earnings catalysts this week (Apr 14-15). MM200 +12.61% rising. $254 unrealized gain.
 
 ---
+
+## 2026-04-15
+
+**Action:** HOLD (confidence: 85%)
+**Entry:** $341.78 | **Target:** $500.00 | **Stop:** 12%
+**Mentions:** 1 | **Sources:** Dr. CS prior analysis, MS LRCX memory note
+
+**Reasoning:** Memory supercycle confirmed. MM200 +12.69% rising. $338 unrealized gain. DRAM revenue surpassed prior quarterly peak, HBM tool demand unprecedented. SNDK weakness could be a short-term risk indicator to watch, but no fundamental change.
+
+---
+
+## 2026-04-15
+
+**Action:** HOLD (confidence: 85%)
+**Entry:** $341.78 | **Target:** $500.00 | **Stop:** 12%
+**Mentions:** 3 | **Sources:** prior_analysis_history, Alpha_0415AM.pdf, RRG_sector_chart
+
+**Reasoning:** Memory supercycle confirmed, DRAM peak exceeded, HBM ramp ongoing. ASML reported strong driven by AI demand — validates semiconductor chain. RRG Tech Leading. MM200 +12.52% rising. $338 unrealized gain. Trailing stop 12%.
+
+---
+
+## 2026-04-16
+
+**Action:** HOLD (confidence: 85%)
+**Entry:** $341.78 | **Target:** $500.00 | **Stop:** 12%
+**Mentions:** 4 | **Sources:** Prior analysis history, Portfolio, Memory supercycle thesis
+
+**Reasoning:** Memory supercycle confirmed. MM200 +12.52% rising. $319 unrealized gain. HBM/DRAM demand intact. SNDK and MU share the same thesis — memory supercycle + AI inference demand. No new adverse signals. RRG shows Technology in Leading quadrant.
+
+---
+
+## 2026-04-17
+
+**Action:** HOLD (confidence: 85%)
+**Entry:** $341.78 | **Target:** $500.00 | **Stop:** 12%
+**Mentions:** 4 | **Sources:** Prior analysis history, GS Prime Insights Apr 2026, MM200 analysis
+
+**Reasoning:** Memory supercycle confirmed. MM200 +12.34% rising. $319 unrealized gain (+31.1%). HBM/DRAM demand intact for AI training. GS Prime: Semis & Semi Equip at record net exposure — institutional consensus long. No new negative catalysts. Maintain position.
+
+---

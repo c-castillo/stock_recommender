@@ -99,3 +99,43 @@
 **Reasoning:** Dr. CS highest conviction DCI play, 'CIEN family' reaffirmed Apr 7. +108.40% YTD on watchlist (#3). GS Data Center & Related basket +50.86% YTD direct read-through. EU Data Centers top post-ceasefire performer. MM200 +20.08% rising strongly. $427 unrealized gain protected by trailing stop.
 
 ---
+
+## 2026-04-15
+
+**Action:** HOLD (confidence: 92%)
+**Entry:** $380.60 | **Target:** $600.00 | **Stop:** 15%
+**Mentions:** 2 | **Sources:** Dr. CS prior analysis, SpotGamma Apr 14 earnings backdrop
+
+**Reasoning:** Highest conviction DCI play. 'CIEN family' reaffirmed by Dr. CS. +108.40% YTD on watchlist. MM200 +20.07% strongly rising. $439 unrealized gain. No new negative signals. Strong bank earnings confirm risk-on environment benefiting infrastructure names.
+
+---
+
+## 2026-04-15
+
+**Action:** HOLD (confidence: 92%)
+**Entry:** $380.60 | **Target:** $600.00 | **Stop:** 15%
+**Mentions:** 5 | **Sources:** prior_analysis_history, RRG_sector_chart, Alpha_0415AM.pdf
+
+**Reasoning:** Highest conviction DCI play per Dr. CS 'CIEN family.' MM200 +20.21% strongly rising. +108% YTD on watchlist. RRG Tech (S5INFT) in Leading quadrant. $476 unrealized gain. No negative catalysts. Trailing stop 15% from recent high.
+
+---
+
+## 2026-04-16
+
+**Action:** HOLD (confidence: 92%)
+**Entry:** $380.60 | **Target:** $600.00 | **Stop:** 15%
+**Mentions:** 5 | **Sources:** Dr. CS prior calls, Portfolio, RRG sector rotation
+
+**Reasoning:** Highest conviction DCI play. 'CIEN family' reaffirmed by Dr. CS. MM200 +20.21% strongly rising. $490 unrealized gain (+28.8%). No new adverse signals. RRG shows S5INFT (Technology/IT) in Leading quadrant. Optical fiber/networking infrastructure is secular growth theme. Maintain 15% trailing stop (~$406).
+
+---
+
+## 2026-04-17
+
+**Action:** HOLD (confidence: 92%)
+**Entry:** $380.60 | **Target:** $600.00 | **Stop:** 15%
+**Mentions:** 6 | **Sources:** Dr. CS reaffirmation, Prior analysis history, MM200 analysis, NDX breadth confirmation
+
+**Reasoning:** Highest conviction DCI play. 'CIEN family' reaffirmed by Dr. CS. MM200 +20.34% — one of the strongest trends in portfolio. $490 unrealized gain (+25.8%). No new negative developments. NDX making new highs supports optical networking demand. AI data center capex cycle intact. Maintain with 15% trailing stop (~$406 floor from recent highs).
+
+---

@@ -99,3 +99,43 @@
 **Reasoning:** Dr. CS explicit addition Apr 6. Agriculture defensive with Middle East fertilizer/ag input tailwinds. MM200 +1.38% rising marginally. Slight negative P&L ($-6) but within stop. Hold.
 
 ---
+
+## 2026-04-15
+
+**Action:** HOLD (confidence: 68%)
+**Entry:** $82.63 | **Target:** $95.00 | **Stop:** $75.00
+**Mentions:** 1 | **Sources:** Dr. CS prior analysis
+
+**Reasoning:** Dr. CS explicit addition Apr 6. MM200 +1.38% barely rising. Small negative P&L (-$18). Ag inputs / Middle East fertilizer thesis intact. Hold above $75 hard stop.
+
+---
+
+## 2026-04-15
+
+**Action:** HOLD (confidence: 55%)
+**Entry:** $83.90 | **Target:** $95.00 | **Stop:** $75.00
+**Mentions:** 2 | **Sources:** prior_analysis_history, RRG_sector_chart
+
+**Reasoning:** Dr. CS added Apr 6 but no follow-up bullish mentions. MM200 undefined/flat. Small negative P&L (-$28). RRG Materials improving provides sector support. Hold with hard stop at $75 — exit if breached.
+
+---
+
+## 2026-04-16
+
+**Action:** HOLD (confidence: 55%)
+**Entry:** $83.90 | **Target:** $95.00 | **Stop:** $75.00
+**Mentions:** 3 | **Sources:** Dr. CS addition, Prior analysis history, RRG sector rotation
+
+**Reasoning:** Dr. CS explicit addition Apr 6. MM200 +1.35% barely rising. Small negative P&L (-$28). Ag inputs theme intact but S5MATR sector showing mixed signals on RRG (improving but not leading). Stop at $75 provides defined risk. Hold but lowest priority after TAGS/DOW exits.
+
+---
+
+## 2026-04-17
+
+**Action:** HOLD (confidence: 52%)
+**Entry:** $83.90 | **Target:** $95.00 | **Stop:** $75.00
+**Mentions:** 2 | **Sources:** Prior analysis history, MM200 analysis, MS China report Apr 17 - consumption weakness
+
+**Reasoning:** Dr. CS explicit addition Apr 6. MM200 +1.34% barely rising — second weakest trend after TAGS (now sold). Small negative P&L (-$28). Agriculture inputs theme intact but Materials/Ag sectors showing RRG weakness. China consumption weakness persists (MS: per capita spending slowing). Holding with hard stop at $75. Reassess if MM200 slope turns negative.
+
+---

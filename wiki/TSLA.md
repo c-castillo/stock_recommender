@@ -39,3 +39,23 @@
 **Reasoning:** THREE consecutive SELL recommendations. JPM UW: 1Q26 deliveries -7% vs consensus, record unsold vehicles, FCF deterioration. SpotGamma mentions TSLA as cheap IV (options play) but equity direction bearish. No portfolio position.
 
 ---
+
+## 2026-04-15
+
+**Action:** SELL (confidence: 72%)
+
+**Mentions:** 2 | **Sources:** SpotGamma Apr 10 Founder's Note (IV mention), Dr. CS prior analysis, JPM UW
+
+**Reasoning:** Three consecutive SELL at 72%. Not in portfolio. SG mentions TSLA as cheap IV play (options strategy), not a directional long. JPM UW: 1Q26 deliveries -7% vs consensus, record unsold vehicles. Bearish directional view maintained. SpotGamma IV play not applicable as broker is Zesty (equities only, no options).
+
+---
+
+## 2026-04-16
+
+**Action:** HOLD (confidence: 45%)
+
+**Mentions:** 4 | **Sources:** SpotGamma Apr 16, SpotGamma Apr 10, Prior analysis history
+
+**Reasoning:** SG Apr 16: TSLA +7.6% pre-market on Musk AI5 chip announcement — one-time catalyst. SG still lists TSLA as cheap IV play. Not in portfolio. Three prior SELLs at 72% — fundamental bearish thesis unchanged. AI5 catalyst may be fading momentum. No action.
+
+---

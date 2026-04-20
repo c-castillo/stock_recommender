@@ -99,3 +99,43 @@
 **Reasoning:** Gold safe-haven floor from residual Iran geopolitical risk. Ceasefire fragile — Trump said Iran not honoring it (SpotGamma Apr 10). However, risk-on rotation post-ceasefire is modest headwind. GS EU 'Global Gold Miners' slightly negative in risk-on rotation chart. MM200 +6.06% still rising. $232 unrealized gain. Hold with trailing stop.
 
 ---
+
+## 2026-04-15
+
+**Action:** HOLD (confidence: 80%)
+**Entry:** $109.90 | **Target:** $140.00 | **Stop:** 12%
+**Mentions:** 2 | **Sources:** Trump NATO Truth Social post image Apr 14, SpotGamma Apr 10 Iran context, Dr. CS prior analysis
+
+**Reasoning:** Gold safe-haven still relevant. Iran blockade not resolved — Trump said ceasefire not being honored. NATO comments Apr 14 add geopolitical uncertainty = gold demand floor. MM200 +6.06% rising. $197 unrealized gain.
+
+---
+
+## 2026-04-15
+
+**Action:** HOLD (confidence: 80%)
+**Entry:** $109.90 | **Target:** $140.00 | **Stop:** 12%
+**Mentions:** 3 | **Sources:** Trump_NATO_post_image, RRG_sector_chart, prior_analysis_history
+
+**Reasoning:** Gold safe-haven supported by Trump NATO comments (Apr 14), Iran tensions not fully resolved. RRG Materials (S5MATR) in Improving quadrant. MM200 +6.03% rising. $83 unrealized gain. Trailing stop 12% from current price (~$99.71).
+
+---
+
+## 2026-04-16
+
+**Action:** HOLD (confidence: 78%)
+**Entry:** $109.90 | **Target:** $140.00 | **Stop:** 12%
+**Mentions:** 3 | **Sources:** Prior analysis history, SpotGamma Iran commentary, Portfolio
+
+**Reasoning:** Gold safe-haven still relevant despite oil pullback. Iran ceasefire not fully resolved — Trump says it's not being honored. Geopolitical risk premium remains. MM200 +6.03% rising. Small $87 unrealized gain. Gold trend intact globally.
+
+---
+
+## 2026-04-17
+
+**Action:** HOLD (confidence: 75%)
+**Entry:** $109.90 | **Target:** $140.00 | **Stop:** 12%
+**Mentions:** 3 | **Sources:** Prior analysis history, 10Y yield Bloomberg chart Apr 16, MM200 analysis
+
+**Reasoning:** Gold safe-haven demand remains intact. Middle East tensions partially de-escalated (Iran ceasefire) but geopolitical uncertainty persists. $87 unrealized gain (+3.1%). MM200 +6.02% rising. 10Y yield potentially topping (Dr. CS Bloomberg chart) → supportive for gold. RRG shows S5MATR weakening but gold/mining is distinct from base metals. Maintain.
+
+---

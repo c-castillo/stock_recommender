@@ -99,3 +99,43 @@
 **Reasoning:** WTI at $96.70, pulled back from $99 after CENTCOM clarification (blockade = Iranian ports only, not general Strait). Oil structurally elevated but conflict premium fading. GS Oil Levered E&Ps +38% YTD but -4.76% 5D (giving back conflict gains). MM200 +3.66% rising. Small unrealized gain ($11). Hold.
 
 ---
+
+## 2026-04-15
+
+**Action:** HOLD (confidence: 65%)
+**Entry:** $55.86 | **Target:** $75.00 | **Stop:** 12%
+**Mentions:** 2 | **Sources:** SpotGamma Apr 14 Founder's Note, SpotGamma Apr 10 WTI context
+
+**Reasoning:** WTI pulled back to $96.70 from $99 — Hormuz 'not a supply shock' narrative reduces oil premium. MM200 +3.66% rising. Small negative P&L (-$20). SG notes: 'only catalyst that breaks market is Hormuz incident sending oil above $100.' Iran not fully resolved, providing floor. Hold with 12% trailing stop (~$49.16).
+
+---
+
+## 2026-04-15
+
+**Action:** SELL (confidence: 80%)
+
+**Mentions:** 3 | **Sources:** RRG_sector_chart, Alpha_0415AM.pdf, AD25DDBA-BD0F-45AA-A4B8-966994BB04F4.pdf
+
+**Reasoning:** RRG shows S5ENRS (Energy) in deep Lagging quadrant — worst sector rotation signal on the chart. Oil retreating from $99 to $93, potential Iran deal sends oil to $80s which crushes XLE further. Negative P&L (-$20). MM200 barely +3.61%. Exit all 5 shares.
+
+---
+
+## 2026-04-16
+
+**Action:** SELL (confidence: 85%)
+**Entry:** $55.77
+**Mentions:** 4 | **Sources:** RRG sector rotation image Apr 15, SpotGamma Apr 16 (WTI $92), Prior analysis history
+
+**Reasoning:** RRG chart (Dr. CS Apr 15) explicitly shows S5ENRS in deep Lagging quadrant with downward momentum. WTI retreating from $99 to $92 — Hormuz 'not a supply shock' narrative reducing oil premium. Three prior SELL/HOLD conflicted signals. Negative P&L (-$20). MM200 +3.61% barely rising. Exit energy exposure.
+
+---
+
+## 2026-04-17
+
+**Action:** SELL (confidence: 88%)
+**Entry:** $55.77
+**Mentions:** 6 | **Sources:** RRG weekly chart Apr 16, RRG daily chart Apr 15, Prior analysis history, GS Prime Insights Apr 2026
+
+**Reasoning:** RRG chart (both weekly Apr 16 and daily Apr 15) explicitly shows S5ENRS in deep Lagging quadrant with strong downward momentum — worst performing sector on relative rotation. Three consecutive SELL signals. GS Prime confirms Energy sector weighting well below 5-year highs despite recent tactical short covering. Small negative P&L (-$20). Exit completely.
+
+---

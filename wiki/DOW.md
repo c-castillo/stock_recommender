@@ -99,3 +99,43 @@
 **Reasoning:** FOUR consecutive SELL recommendations at 82-85% confidence. Petrochemical manufacturer facing structural input cost headwinds from oil at $97. GS 'Oil Higher for Longer' basket underperforming. Negative P&L (-$23). MM200 technically positive but weakest thesis in portfolio. Exit to free capital for higher-conviction trades. Recovers ~$581.
 
 ---
+
+## 2026-04-15
+
+**Action:** SELL (confidence: 85%)
+**Entry:** $39.28
+**Mentions:** 3 | **Sources:** Dr. CS prior analysis, SpotGamma WTI context Apr 14
+
+**Reasoning:** THREE consecutive SELL at 82-85% confidence. Negative P&L (-$17). WTI at $96.70 = still elevated input costs for petrochemicals. MM200 +4.12% but weakly rising with negative fundamental backdrop. With cash needed for better opportunities (STX, ROST), exit now. Free up ~$589.
+
+---
+
+## 2026-04-15
+
+**Action:** SELL (confidence: 85%)
+
+**Mentions:** 4 | **Sources:** prior_analysis_history, RRG_sector_chart, Alpha_0415AM.pdf
+
+**Reasoning:** THREE consecutive SELL signals at 82-85% confidence. Negative P&L (-$22). RRG shows S5MATR improving but DOW-specific petrochemical margin headwinds with WTI still at $93. No new bullish catalysts. Exit frees ~$583 cash for redeployment into stronger trends.
+
+---
+
+## 2026-04-16
+
+**Action:** SELL (confidence: 88%)
+**Entry:** $38.91
+**Mentions:** 5 | **Sources:** Prior analysis history, SpotGamma Apr 16 (oil $92), RRG sector rotation image
+
+**Reasoning:** Three consecutive SELL signals at 82-85% confidence. Negative P&L (-$22). WTI declining from $99 to $92 reduces input cost relief but petrochemicals remain under pressure. RRG shows S5ENRS as deep laggard. Energy/materials adjacent. No new catalysts. Exit to raise cash.
+
+---
+
+## 2026-04-17
+
+**Action:** SELL (confidence: 88%)
+**Entry:** $38.91
+**Mentions:** 5 | **Sources:** Prior analysis history, RRG sector rotation charts Apr 15-16, GS Prime Insights Apr 2026, Portfolio rule
+
+**Reasoning:** Three consecutive SELL signals at 85-88% confidence. Small negative P&L (-$22). Materials sector (S5MATR) confirmed in Weakening quadrant on both weekly and daily RRG charts. WTI oil declining pressures chemical input margins. GS Prime shows Industrials/Materials most net sold by hedge funds. No bullish catalysts visible. Exit to free cash for better opportunities.
+
+---

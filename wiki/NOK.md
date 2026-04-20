@@ -99,3 +99,43 @@
 **Reasoning:** Dr. CS most explicit single-stock directional call: 'NOK → 15'. Four consecutive BUY recommendations at 87-88% confidence. DCI infrastructure beneficiary — Nokia provides the telecom/networking equipment for data center interconnect buildout validated by GS Data Center basket performance. Buy 350 shares @ $9.52 = $3,332 (~18.5% of portfolio). MM200 rising. Target +57% upside from entry.
 
 ---
+
+## 2026-04-15
+
+**Action:** BUY (confidence: 85%)
+**Entry:** $10.28 | **Target:** $15.00 | **Stop:** $7.50
+**Mentions:** 3 | **Sources:** Dr. CS explicit 'NOK → 15' call, EuroStoxx sell setup context, Trump NATO post Apr 14
+
+**Reasoning:** Dr. CS most explicit single-stock call: 'NOK → 15'. Three consecutive 88% BUY recommendations. MM200 +5.93% rising. Currently 50 shares at $10.20 avg. Caution: EuroStoxx 'Perfected Sell Setup' shared by Dr. CS could pressure European-listed names, but NOK US ADR has independent MM200 trend. Trump NATO comments could paradoxically boost European defense spending → telecom infrastructure. Small position, room to add 20 shares (~$206) within position size rules.
+
+---
+
+## 2026-04-15
+
+**Action:** BUY (confidence: 87%)
+**Entry:** $10.02 | **Target:** $15.00 | **Stop:** $7.50
+**Mentions:** 5 | **Sources:** prior_analysis_history, RRG_sector_chart, Dr_CS_explicit_call
+
+**Reasoning:** RRG confirms S5TELS (Telecom) in Leading quadrant — strongest validation yet for Dr. CS's explicit 'NOK→15' call. Three consecutive 88%+ BUY recommendations. MM200 +6.05% rising. Adding ~50 shares at $10.02 (~$501) increases position from $1,000 to ~$1,501. Total NOK cost ~9.4% of portfolio — within sizing rules. NATO/defense spending reorientation toward European suppliers benefits NOK infrastructure sales.
+
+---
+
+## 2026-04-16
+
+**Action:** BUY (confidence: 82%)
+**Entry:** $10.02 | **Target:** $15.00 | **Stop:** $7.50
+**Mentions:** 5 | **Sources:** Dr. CS explicit call, Prior analysis history (3x BUY), RRG S5TELS Leading quadrant
+
+**Reasoning:** Dr. CS most explicit single-stock call: 'NOK → 15'. Three consecutive BUY at 85-88% confidence. MM200 +6.05% rising. Currently at breakeven. RRG shows S5TELS (Telecom) in Leading quadrant — strongest sector rotation signal. Telecom infrastructure spending benefits from AI network buildout. Already in portfolio at 100 shares; small position size appropriate.
+
+---
+
+## 2026-04-17
+
+**Action:** BUY (confidence: 82%)
+**Entry:** $10.02 | **Target:** $15.00 | **Stop:** $7.50
+**Mentions:** 5 | **Sources:** Dr. CS explicit call 'NOK→15', Prior analysis history, MM200 analysis
+
+**Reasoning:** Dr. CS most explicit single-stock directional call: 'NOK → 15' (+50% from current). Already hold 100 shares; adding 100 more to build conviction position. MM200 ↑ +6.20% rising. Network infrastructure buildout theme intact. Three consecutive BUY signals. Adding at current price to increase position to 200 shares at ~$10.06 avg. Risk/reward: 50% upside vs 25% downside to stop.
+
+---

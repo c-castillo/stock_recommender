@@ -89,3 +89,43 @@
 **Reasoning:** Lowest conviction in portfolio. -2.16% single-day worst performer shown on Dr. CS watchlist. MM200 weakest among tech names (+4.33%). Still +44.15% YTD — technically positive. Small unrealized gain ($51). Trailing stop at 10% from current price ($163) protects capital. Watch for deterioration.
 
 ---
+
+## 2026-04-15
+
+**Action:** HOLD (confidence: 45%)
+**Entry:** $171.54 | **Target:** $200.00 | **Stop:** 10%
+**Mentions:** 1 | **Sources:** Dr. CS prior analysis
+
+**Reasoning:** Lowest conviction position. MM200 +4.34% barely rising. $60 unrealized gain. Weak relative performer. No new catalysts. With breadth 'Perfected Sell Setup' from Dr. CS, weakest-conviction positions are most vulnerable. Monitor closely — if 10% stop hit ($165), exit.
+
+---
+
+## 2026-04-15
+
+**Action:** HOLD (confidence: 45%)
+**Entry:** $171.54 | **Target:** $200.00 | **Stop:** 10%
+**Mentions:** 2 | **Sources:** prior_analysis_history
+
+**Reasoning:** Lowest conviction position. MM200 +4.39% barely rising. Small positive P&L ($30). No new catalysts in messages. SG Compass does not highlight DELL. Hold only because trend technically intact. Exit if drops below $159.79 (10% trailing).
+
+---
+
+## 2026-04-16
+
+**Action:** HOLD (confidence: 45%)
+**Entry:** $171.54 | **Target:** $200.00 | **Stop:** 10%
+**Mentions:** 3 | **Sources:** Prior analysis history, Portfolio
+
+**Reasoning:** Lowest conviction position. MM200 +4.39% barely rising. Small $43 unrealized gain. No new catalysts. Weakest relative performer in tech holdings. On watch for exit if MM200 flattens or price deteriorates. Maintaining 10% trailing stop (~$162).
+
+---
+
+## 2026-04-17
+
+**Action:** HOLD (confidence: 45%)
+**Entry:** $171.54 | **Target:** $200.00 | **Stop:** 10%
+**Mentions:** 2 | **Sources:** Prior analysis history, MM200 analysis
+
+**Reasoning:** Lowest conviction position. MM200 +4.51% barely rising. Small $43 unrealized gain (+5%). No new catalysts this week. GS Prime: Industrials being sold by hedge funds. PC/server cycle not a primary AI theme relative to SNDK/MU/CIEN/COHR. Maintaining only because MM200 still rising and small gain. Would exit on any price weakness below $162.
+
+---

@@ -89,3 +89,43 @@
 **Reasoning:** AI/data center hardware supply chain. MM200 +6.92% rising. $277 unrealized gain. GS Hardware Basket +45.41% YTD validates theme. No new negative catalysts this week. Hold with trailing stop.
 
 ---
+
+## 2026-04-15
+
+**Action:** HOLD (confidence: 68%)
+**Entry:** $276.43 | **Target:** $380.00 | **Stop:** 12%
+**Mentions:** 1 | **Sources:** Dr. CS prior analysis
+
+**Reasoning:** AI/data center hardware supply chain. MM200 +6.94% rising. $328 unrealized gain. No new specific catalysts. Earnings season could provide catalyst. Hold.
+
+---
+
+## 2026-04-15
+
+**Action:** HOLD (confidence: 68%)
+**Entry:** $276.43 | **Target:** $380.00 | **Stop:** 12%
+**Mentions:** 2 | **Sources:** prior_analysis_history, RRG_sector_chart
+
+**Reasoning:** AI/data center hardware supply chain. MM200 +7.04% rising. $317 unrealized gain. Earnings season approaching. No new catalysts but trend intact. Trailing stop 12%.
+
+---
+
+## 2026-04-16
+
+**Action:** HOLD (confidence: 68%)
+**Entry:** $276.43 | **Target:** $380.00 | **Stop:** 12%
+**Mentions:** 3 | **Sources:** Prior analysis history, Portfolio
+
+**Reasoning:** AI/data center hardware supply chain. MM200 +7.04% rising. $299 unrealized gain. No new specific catalysts this week. Earnings season context keeps DCI supply chain theme intact. Maintain position.
+
+---
+
+## 2026-04-17
+
+**Action:** HOLD (confidence: 68%)
+**Entry:** $276.43 | **Target:** $380.00 | **Stop:** 12%
+**Mentions:** 2 | **Sources:** Prior analysis history, MM200 analysis, GS Prime Apr 2026
+
+**Reasoning:** AI/data center hardware supply chain. MM200 +7.16% rising. $299 unrealized gain (+36.1%). No new specific catalysts this week. GS Prime confirms TMT/AI theme intact with Semis at record exposure. Earnings season approaching could provide catalyst. Maintain with 12% trailing stop.
+
+---

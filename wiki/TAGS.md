@@ -99,3 +99,43 @@
 **Reasoning:** FOUR consecutive SELL recommendations. MM200 slope +0.04% — essentially flat, weakest in entire portfolio. Negative P&L (-$42). Agriculture ETF with no positive catalysts in current risk-on, DCI-driven market environment. Exit immediately to redeploy into higher-conviction ideas. Recovers ~$1,196.
 
 ---
+
+## 2026-04-15
+
+**Action:** SELL (confidence: 90%)
+**Entry:** $24.40
+**Mentions:** 3 | **Sources:** Dr. CS prior analysis, Portfolio rule: weakest MM200 slope
+
+**Reasoning:** THREE consecutive SELL at 88-90% confidence. MM200 +0.04% essentially flat — worst trend in entire portfolio. Negative P&L (-$16). No new bullish catalysts. With Dr. CS sharing breadth 'Perfected Sell Setup', weakest positions must be exited immediately to raise cash. Free up ~$732.
+
+---
+
+## 2026-04-15
+
+**Action:** SELL (confidence: 90%)
+
+**Mentions:** 3 | **Sources:** prior_analysis_history, RRG_sector_chart
+
+**Reasoning:** THREE consecutive SELL signals at 88-90% confidence. MM200 +0.04% — essentially flat, worst trend in entire portfolio. Negative P&L (-$15). No agricultural catalyst. Weakest position by every metric. Exit immediately.
+
+---
+
+## 2026-04-16
+
+**Action:** SELL (confidence: 92%)
+**Entry:** $23.96
+**Mentions:** 4 | **Sources:** Prior analysis history, Portfolio rules, RRG sector rotation
+
+**Reasoning:** Three consecutive SELL signals at 88-90% confidence. MM200 +0.04% — essentially flat, worst trend in entire portfolio. Negative P&L (-$20). RRG shows S5MATR not a leadership sector. No catalysts. Portfolio rule: exit positions with flat/declining MM200 and negative P&L. Raising cash for better opportunities.
+
+---
+
+## 2026-04-17
+
+**Action:** SELL (confidence: 92%)
+**Entry:** $23.96
+**Mentions:** 4 | **Sources:** Prior analysis history, RRG sector rotation chart Apr 15-16, Portfolio rule: MM200 flat = avoid
+
+**Reasoning:** Three consecutive SELL signals at 88-92% confidence. MM200 +0.04% — essentially flat, worst trend in entire portfolio. In a market making ATHs, near-zero trend momentum = significant relative weakness and opportunity cost. RRG confirms S5MATR in Weakening quadrant. Agriculture theme has no near-term catalyst. Exit immediately to redeploy into higher-conviction positions.
+
+---

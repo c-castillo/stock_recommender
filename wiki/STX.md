@@ -89,3 +89,33 @@
 **Reasoning:** MS TOP PICK (OW) with PT $582 (+28% upside). +81.84% YTD and +618% 1YR on Dr. CS watchlist. HDD demand structurally strengthening with AI data center hypergrowth. GS Data Center & Related basket +50.86% YTD — STX direct beneficiary. Three consecutive BUY recommendations at 85-87% confidence. Buy 1 share (~$453, ~2.5% of portfolio) given limited remaining cash after NOK allocation.
 
 ---
+
+## 2026-04-15
+
+**Action:** BUY (confidence: 82%)
+**Entry:** $453.30 | **Target:** $582.00 | **Stop:** $395.00
+**Mentions:** 3 | **Sources:** Dr. CS prior analysis, MS TOP PICK STX Apr 7
+
+**Reasoning:** Three consecutive BUY at 87% confidence. MS TOP PICK OW, PT raised to $582 (+24%). HDD demand and pricing strengthening. Directly aligned with SNDK/MU memory supercycle thesis. MM200 strongly rising. Available cash post-TAGS/DOW exits ~$5,726. Buy 1 share at ~$453 = ~$453 (8% of portfolio). Strong technical + fundamental case.
+
+---
+
+## 2026-04-16
+
+**Action:** BUY (confidence: 82%)
+**Entry:** $453.30 | **Target:** $582.00 | **Stop:** $395.00
+**Mentions:** 6 | **Sources:** Prior analysis history (3x BUY), Morgan Stanley TOP PICK, Memory supercycle thesis
+
+**Reasoning:** Three consecutive BUY signals at 82-87% confidence. Morgan Stanley TOP PICK OW with PT raised to $582 (+28% upside). HDD demand and pricing strengthening — same memory supercycle thesis as SNDK and MU already in portfolio. Post-exits cash available ~$7,170. 2 shares at ~$453 = ~$906 (fits 5-20% position size rule at ~6% of portfolio). MM200 rising. Stop at $395 (prior key support).
+
+---
+
+## 2026-04-17
+
+**Action:** BUY (confidence: 82%)
+**Entry:** $453.30 | **Target:** $582.00 | **Stop:** $395.00
+**Mentions:** 4 | **Sources:** Prior analysis history, Morgan Stanley Top Pick OW $582 PT
+
+**Reasoning:** Three consecutive BUY signals at 82-87% confidence. Morgan Stanley TOP PICK with OW rating and PT $582 (+28% upside). HDD supercycle driven by AI data center cold storage demand (HAMR technology). Shares the memory/storage supercycle thesis with portfolio holdings SNDK and MU. MM200 trending up. Fundamental analyst conviction from credible institutional source. Risk/reward: 28% upside vs 13% downside.
+
+---

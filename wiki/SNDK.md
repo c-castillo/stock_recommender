@@ -99,3 +99,43 @@
 **Reasoning:** #1 performer on Dr. CS watchlist at +258.74% YTD (+2640% 1YR). GS Memory Exposed basket leads all GS TMT baskets at +78.56% YTD. Memory supercycle confirmed by multiple institutional sources. MM200 strongest in portfolio at +31.03%. No new negative catalysts. Trailing stop protects $610 unrealized gain.
 
 ---
+
+## 2026-04-15
+
+**Action:** HOLD (confidence: 85%)
+**Entry:** $603.85 | **Target:** $1050.00 | **Stop:** 15%
+**Mentions:** 3 | **Sources:** SNDK overnight price image Apr 15 1:46 AM, Dr. CS prior analysis, MS LRCX memory supercycle
+
+**Reasoning:** #1 performer on Dr. CS watchlist +258.74% YTD. Strongest MM200 in portfolio +31.08%. However overnight image shared by Dr. CS showing SNDK at $917.60, -$26.86 (-2.84%) in 24-hr market is a yellow flag — Dr. CS specifically highlighted this move. Memory supercycle confirmed by MS. Still well above avg cost $603.85. Maintain 15% trailing stop (~$780). No fundamental change but monitor earnings catalyst context.
+
+---
+
+## 2026-04-15
+
+**Action:** HOLD (confidence: 82%)
+**Entry:** $603.85 | **Target:** $1050.00 | **Stop:** 15%
+**Mentions:** 4 | **Sources:** prior_analysis_history, WhatsApp_SNDK_overnight_image, Alpha_0415AM.pdf
+
+**Reasoning:** Overnight -2.84% to $917.60 warrants monitoring but remains #1 watchlist performer +258.74% YTD. MM200 +30.97% strongest in portfolio. Memory supercycle intact. Trailing stop 15% from high (~$944) = ~$802 stop. Current price $893 still safely above stop. Hold unless stop triggered.
+
+---
+
+## 2026-04-16
+
+**Action:** HOLD (confidence: 80%)
+**Entry:** $603.85 | **Target:** $1050.00 | **Stop:** 12%
+**Mentions:** 6 | **Sources:** SNDK overnight chart shared Apr 15, Prior analysis history, Portfolio
+
+**Reasoning:** Dr. CS shared overnight chart showing -$26.86 (-2.84%) to $917.60 — a warning flag requiring tighter stop. MM200 +30.97% (strongest in portfolio), $570 unrealized gain. Memory supercycle thesis intact. Tightening trailing stop from 15% to 12% (~$783) to protect gains given overnight weakness. Still #1 YTD performer on Dr. CS watchlist.
+
+---
+
+## 2026-04-17
+
+**Action:** HOLD (confidence: 80%)
+**Entry:** $603.85 | **Target:** $1050.00 | **Stop:** 12%
+**Mentions:** 5 | **Sources:** Prior analysis history, GS Prime Insights Apr 2026 - Semis record net exposure, MM200 analysis
+
+**Reasoning:** MM200 +30.84% — strongest trend in portfolio. $570 unrealized gain (+47.2%). Memory supercycle confirmed. Prior warning from Dr. CS about overnight -2.84% move requires vigilance. GS Prime confirms Semis & Semi Equip is most net bought global subsector at record high net exposure. HBM/NAND demand cycle intact. Maintain 12% trailing stop.
+
+---

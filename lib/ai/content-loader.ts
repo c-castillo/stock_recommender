@@ -1,9 +1,8 @@
 /**
  * Loads downloaded WhatsApp content and converts it into
- * Anthropic content blocks ready to be sent to Claude.
+ * AI SDK content parts ready to be sent to Claude.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
 import fs from "fs";
 import path from "path";
 import { getContentForAnalysis, type MessageForAnalysis } from "@/lib/whatsapp/db";
@@ -19,18 +18,13 @@ const MAX_TOTAL_MEDIA_BYTES = 8 * 1024 * 1024;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type ContentBlock = Anthropic.ImageBlockParam | Anthropic.TextBlockParam;
-
-// DocumentBlockParam is not in the main union in older SDK versions;
-// we cast it to avoid TS noise while staying correct at runtime.
-interface DocumentBlock {
-  type: "document";
-  source: { type: "base64"; media_type: "application/pdf"; data: string };
-  title?: string;
-}
+type TextPart = { type: "text"; text: string };
+type ImagePart = { type: "image"; image: string; mediaType: string };
+type FilePart = { type: "file"; data: string; mediaType: string; filename?: string };
+type ContentPart = TextPart | ImagePart | FilePart;
 
 export interface LoadedContent {
-  blocks: (ContentBlock | DocumentBlock)[];
+  blocks: ContentPart[];
   stats: {
     textMessages: number;
     images: number;
@@ -123,7 +117,7 @@ export function loadContent(): LoadedContent {
   );
 
   const groupNames = [...new Set(rows.map((r) => r.group_name))];
-  const blocks: (ContentBlock | DocumentBlock)[] = [];
+  const blocks: ContentPart[] = [];
 
   // ── 1. Text messages ────────────────────────────────────────────────────────
   if (textRows.length > 0) {
@@ -159,10 +153,7 @@ export function loadContent(): LoadedContent {
     if (totalMediaBytes > MAX_TOTAL_MEDIA_BYTES) break;
 
     const mime = r.media_mime as "image/jpeg" | "image/png" | "image/gif" | "image/webp";
-    blocks.push({
-      type: "image",
-      source: { type: "base64", media_type: mime, data },
-    });
+    blocks.push({ type: "image", image: data, mediaType: mime });
     blocks.push({
       type: "text",
       text: `↑ Imagen compartida en "${r.group_name}" el ${formatTs(r.ts)}${r.media_filename ? ` — ${r.media_filename}` : ""}`,
@@ -180,9 +171,10 @@ export function loadContent(): LoadedContent {
     if (totalMediaBytes > MAX_TOTAL_MEDIA_BYTES) break;
 
     blocks.push({
-      type: "document",
-      source: { type: "base64", media_type: "application/pdf", data },
-      title: r.media_filename ?? path.basename(r.media_path!),
+      type: "file",
+      data,
+      mediaType: "application/pdf",
+      filename: r.media_filename ?? path.basename(r.media_path!),
     });
     blocks.push({
       type: "text",
