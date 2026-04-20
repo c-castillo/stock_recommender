@@ -3,15 +3,16 @@
  * and streams back an investment analysis with structured recommendations.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
+import { anthropic } from "@ai-sdk/anthropic";
+import { streamText } from "ai";
 import fs from "fs";
 import path from "path";
 import { loadContent } from "./content-loader";
 import { listPortfolio, getCashBalance } from "@/lib/whatsapp/db";
 import { fetchMa200Slopes } from "@/lib/ma200";
 import { loadAllWikis, updateWikiEntry } from "./wiki";
+import { extractRecommendations } from "./extract-recommendations";
 
-const client = new Anthropic();
 
 // ── Current price fetcher ─────────────────────────────────────────────────────
 
@@ -104,7 +105,7 @@ async function buildSystemPrompt(): Promise<string> {
 
   // Fetch MM200 slopes and current prices in parallel
   const [slopes, currentPrices] = await Promise.all([
-    positions.length > 0 ? fetchMa200Slopes(portfolioTickers) : Promise.resolve({}),
+    positions.length > 0 ? fetchMa200Slopes(portfolioTickers) : Promise.resolve({} as Record<string, number | null>),
     fetchCurrentPrices(allTickers),
   ]);
 
@@ -161,7 +162,7 @@ export interface AnalysisStats {
   groups: string[];
 }
 
-export interface AnalysisChunk {
+interface AnalysisChunk {
   type: "stats" | "text" | "done" | "error";
   content?: string;
   stats?: AnalysisStats;
@@ -197,29 +198,17 @@ export async function* streamAnalysis(): AsyncGenerator<AnalysisChunk> {
   ];
 
   // Stream from Claude Sonnet 4.6
-  const stream = client.messages.stream({
-    model: "claude-sonnet-4-6",
-    max_tokens: 16000,
+  const result = streamText({
+    model: anthropic("claude-sonnet-4.6"),
+    maxOutputTokens: 16000,
     system: await buildSystemPrompt(),
-    messages: [
-      {
-        role: "user",
-        // Cast needed because DocumentBlock is not in older SDK union
-        content: userContent as Anthropic.MessageParam["content"],
-      },
-    ],
+    messages: [{ role: "user", content: userContent }],
   });
 
   let fullText = "";
-  for await (const event of stream) {
-    if (
-      event.type === "content_block_delta" &&
-      event.delta.type === "text_delta" &&
-      event.delta.text
-    ) {
-      fullText += event.delta.text;
-      yield { type: "text", content: event.delta.text };
-    }
+  for await (const chunk of result.textStream) {
+    fullText += chunk;
+    yield { type: "text", content: chunk };
   }
 
   // Persist new entries to each ticker's wiki file
@@ -249,24 +238,6 @@ export interface AIRecommendation {
   reasoning: string;
   mentions: number;
   sources: string[];
+  generatedAt?: number;
 }
 
-/** Parses the JSON block from the full analysis text. */
-export function extractRecommendations(text: string): AIRecommendation[] {
-  // Match ```json ... ``` block (last one wins, in case of multiple)
-  const matches = [...text.matchAll(/```json\s*([\s\S]*?)```/g)];
-  if (matches.length === 0) return [];
-
-  const lastMatch = matches[matches.length - 1];
-  try {
-    const parsed = JSON.parse(lastMatch[1].trim());
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (r) =>
-        typeof r.ticker === "string" &&
-        ["BUY", "SELL", "HOLD"].includes(r.action)
-    ) as AIRecommendation[];
-  } catch {
-    return [];
-  }
-}

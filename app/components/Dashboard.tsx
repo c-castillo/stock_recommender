@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import Image from "next/image";
+import type { AIRecommendation, AnalysisStats } from "@/lib/ai/analyze";
+import { extractRecommendations } from "@/lib/ai/extract-recommendations";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -33,28 +35,6 @@ interface SyncJob {
   startedAt: number;
   completedAt?: number;
   groups: GroupProgress[];
-}
-
-// AI-generated recommendations (rich, streaming / persisted)
-interface AIRecommendation {
-  ticker: string;
-  company: string;
-  action: "BUY" | "SELL" | "HOLD";
-  confidence: number;
-  entryPrice: string | null;
-  priceTarget: string | null;
-  stopLoss: string | null;
-  reasoning: string;
-  mentions: number;
-  sources: string[];
-  generatedAt?: number;
-}
-
-interface AnalysisStats {
-  textMessages: number;
-  images: number;
-  documents: number;
-  groups: string[];
 }
 
 type AnalysisState = "idle" | "running" | "done" | "error";
@@ -342,18 +322,6 @@ export default function Dashboard() {
     }
   }
 
-  function extractRecommendations(text: string): AIRecommendation[] {
-    const matches = [...text.matchAll(/```json\s*([\s\S]*?)```/g)];
-    if (matches.length === 0) return [];
-    try {
-      const parsed = JSON.parse(matches[matches.length - 1][1].trim());
-      if (!Array.isArray(parsed)) return [];
-      return parsed.filter(
-        (r) => typeof r.ticker === "string" && ["BUY", "SELL", "HOLD"].includes(r.action)
-      );
-    } catch { return []; }
-  }
-
   // ── Derived ────────────────────────────────────────────────────────────────
 
   const isConnected = waStatus.status === "connected";
@@ -363,9 +331,10 @@ export default function Dashboard() {
   const jobRunning = activeJob?.status === "running";
   const analysisRunning = analysisState === "running";
 
+  const portfolioTickerSet = new Set(portfolio.map((p) => p.ticker));
   const buyCount = aiRecs.filter((r) => r.action === "BUY").length;
-  const sellCount = aiRecs.filter((r) => r.action === "SELL").length;
-  const holdCount = aiRecs.filter((r) => r.action === "HOLD").length;
+  const sellCount = aiRecs.filter((r) => r.action === "SELL" && portfolioTickerSet.has(r.ticker.toUpperCase())).length;
+  const holdCount = aiRecs.filter((r) => r.action === "HOLD" && portfolioTickerSet.has(r.ticker.toUpperCase())).length;
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -586,7 +555,7 @@ export default function Dashboard() {
               <div>
                 <p className="text-sm font-medium text-[#1f2328]">Listo para analizar</p>
                 <p className="text-xs text-[#8c959f] mt-1 max-w-xs">
-                  Haz click en &quot;Generar recomendaciones IA&quot; para procesar todo el contenido descargado con Claude Opus 4.6.
+                  Haz click en &quot;Generar recomendaciones IA&quot; para procesar todo el contenido descargado con Claude Opus 4.7.
                 </p>
               </div>
             </div>
@@ -633,25 +602,29 @@ export default function Dashboard() {
             </div>
           ) : (
             <>
-            <div className="px-6 py-2 grid grid-cols-[1fr_auto_auto_auto_auto_auto_auto] gap-3 border-b border-[#d0d7de]/60 bg-[#f6f8fa]">
+            <div className="px-6 py-2 grid grid-cols-[1fr_auto_auto_auto_auto_auto_auto_auto] gap-3 border-b border-[#d0d7de]/60 bg-[#f6f8fa]">
               <span className="text-xs text-[#8c959f]">Ticker / Acciones</span>
               <span className="text-xs text-[#8c959f] text-right w-24">Costo prom.</span>
               <span className="text-xs text-[#8c959f] text-right w-24">Precio actual</span>
               <span className="text-xs text-[#8c959f] text-right w-24">Total</span>
+              <span className="text-xs text-[#8c959f] text-right w-16">% Port.</span>
               <span className="text-xs text-[#8c959f] text-right w-32">P&L</span>
               <span className="text-xs text-[#8c959f] text-right w-20">MM200</span>
               <span className="text-xs text-[#8c959f] w-24" />
             </div>
             <div className="divide-y divide-[#d0d7de]/60">
-              {portfolio.map((pos) => {
+              {(() => {
+                const totalMktVal = portfolio.reduce((sum, p) => sum + (p.market_value ?? 0), 0);
+                return portfolio.map((pos) => {
                 const rec = aiRecs.find((r) => r.ticker.toUpperCase() === pos.ticker);
                 const currentPrice = pos.current_price ?? null;
                 const total = pos.market_value ?? null;
                 const pnl = pos.unrealized_pl ?? null;
                 const pnlPct = pos.unrealized_pl_pc != null ? pos.unrealized_pl_pc * 100 : null;
+                const portPct = total != null && totalMktVal > 0 ? (total / totalMktVal) * 100 : null;
                 const fmt = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                 return (
-                  <div key={pos.ticker} className="px-6 py-3 grid grid-cols-[1fr_auto_auto_auto_auto_auto_auto] gap-3 items-center hover:bg-[#f6f8fa] transition-colors">
+                  <div key={pos.ticker} className="px-6 py-3 grid grid-cols-[1fr_auto_auto_auto_auto_auto_auto_auto] gap-3 items-center hover:bg-[#f6f8fa] transition-colors">
                     {/* Ticker + shares */}
                     <div className="min-w-0">
                       <span className="font-mono text-sm font-bold text-[#1f2328]">{pos.ticker}</span>
@@ -668,6 +641,10 @@ export default function Dashboard() {
                     {/* Total market value */}
                     <span className="text-xs text-[#1f2328] text-right w-24">
                       {total != null ? `$${fmt(total)}` : <span className="text-[#8c959f]">—</span>}
+                    </span>
+                    {/* % of portfolio */}
+                    <span className="text-xs text-[#656d76] text-right w-16">
+                      {portPct != null ? `${portPct.toFixed(1)}%` : <span className="text-[#8c959f]">—</span>}
                     </span>
                     {/* P&L */}
                     <span className={`text-xs font-medium text-right w-32 ${pnl == null ? "" : pnl >= 0 ? "text-emerald-700" : "text-red-700"}`}>
@@ -693,7 +670,8 @@ export default function Dashboard() {
                     </div>
                   </div>
                 );
-              })}
+              });
+              })()}
             </div>
             </>
           )}
@@ -721,10 +699,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-sm font-semibold text-zinc-100">Recomendaciones de inversión</h2>
-                {aiRecs.length > 0 && (
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200">IA</span>
-                )}
+                <h2 className="text-sm font-semibold text-zinc-100">Recomendaciones de inversión</h2> 
               </div>
               <p className="text-xs text-[#656d76] mt-0.5">
                 {aiRecs.length > 0
@@ -744,7 +719,11 @@ export default function Dashboard() {
           {/* AI Recommendations cards */}
           {aiRecs.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {aiRecs.map((rec) => (
+              {aiRecs.filter((rec) => {
+                if (rec.action === "BUY") return true;
+                const portfolioTickers = new Set(portfolio.map((p) => p.ticker));
+                return portfolioTickers.has(rec.ticker.toUpperCase());
+              }).map((rec) => (
                 <div key={rec.ticker} className={`rounded-2xl border border-[#d0d7de] bg-white overflow-hidden border-l-4 ${ACTION_BORDER[rec.action]}`}>
                   <div className="px-5 py-4">
                     <div className="flex items-start justify-between gap-3 mb-3">
