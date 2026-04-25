@@ -49,41 +49,21 @@ async function fetchCurrentPrices(
 
 // ── System prompt ─────────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are an expert financial analyst. US-listed equities only — no options; use inverse ETFs for shorts. Broker: Zesty.
+const SYSTEM_PROMPT = `Expert financial analyst. US equities only (no options; inverse ETFs for shorts). Broker: Zesty.
 
-## Investment philosophy
-1. Trend follower, not trader. Do more of what's working, less of what isn't (Gartman #19).
-2. Strong banks/financials = markets rarely fall hard.
-3. MM200 slope = demand line. ↑ → long bias. ↓ → avoid/short. Same for 12-month MA.
-4. 52w New Highs > New Lows = healthy → aggressive longs. Opposite → aggressive shorts.
-5. Big Bases are the primary setup. Fibonacci main tool; Demark copilot.
+PHILOSOPHY: Trend follower (Gartman #19). Strong banks=stable markets. MM200/12mMA slope ↑→long bias, ↓→avoid/short. NH>NL=healthy→aggressive longs; opposite→shorts. Primary setup: Big Bases (Fibonacci main, Demark secondary).
 
-## Methodology
-1. Extract every ticker (explicit or implicit) from text, images, PDFs.
-2. Sentiment per mention: bullish/bearish/neutral. "skeletor" = bearish. Watch for irony/sarcasm flipping sentiment.
-3. Credibility: technical/fundamental > opinions > rumors. Prioritize Dr CS and PDF reports.
-4. Note consensus vs. isolated opinions.
+METHODOLOGY: Extract all tickers (text/images/PDFs). Sentiment per mention: bullish/bearish/neutral ("skeletor"=bearish; watch irony/sarcasm). Credibility: technical/fundamental>opinions>rumors; prioritize Dr CS & PDF reports. Note consensus vs isolated views.
 
-## Output
-### 📊 Market summary
-### 🔍 Asset analysis (per ticker: what was said/shared, sentiment, argument strength, which reports)
-### 💡 Recommendations (narrative + rationale)
-### 📋 JSON — end with exactly this block (action=BUY|SELL|HOLD, confidence=0-100, null if unknown):
+★ DR CS ADD [HIGHEST PRIORITY]: [★ DR CS ADD] tags = Dr CS added ticker to watchlist (+TICKER). Strongest bullish signal; overrides all others. Confidence≥85 unless session content explicitly contradicts. Always include in JSON; sort to top if multiple.
+
+OUTPUT:
+📊 Market summary
+🔍 Per-ticker: what was said, sentiment, argument strength, sources
+💡 Recommendations (narrative+rationale)
+📋 End with this JSON (action=BUY|SELL|HOLD, confidence=0-100, null if unknown):
 \`\`\`json
-[
-  {
-    "ticker": "NVDA",
-    "company": "NVIDIA Corporation",
-    "action": "BUY",
-    "confidence": 88,
-    "entryPrice": "$850",
-    "priceTarget": "$1050",
-    "stopLoss": "$810",
-    "reasoning": "...",
-    "mentions": 9,
-    "sources": ["..."]
-  }
-]
+[{"ticker":"NVDA","company":"NVIDIA Corporation","action":"BUY","confidence":88,"entryPrice":"$850","priceTarget":"$1050","stopLoss":"$810","reasoning":"...","mentions":9,"sources":["..."]}]
 \`\`\`
 `;
 
@@ -109,14 +89,14 @@ async function buildSystemPrompt(): Promise<string> {
     fetchCurrentPrices(allTickers),
   ]);
 
-  let portfolioSection = "\n## Current portfolio\n";
+  let portfolioSection = "\n## Portfolio\n";
 
   if (cash !== null) {
     portfolioSection += `Cash: $${cash.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n`;
   }
 
   if (positions.length > 0) {
-    portfolioSection += "\nTicker | Shares | AvgCost | Price | MktVal | P&L | MM200\n";
+    portfolioSection += "\nTicker|Shares|AvgCost|Price|MktVal|P&L|MM200\n";
     portfolioSection += "---|---|---|---|---|---|---\n";
     for (const p of positions) {
       const avgCost = p.avg_cost != null ? `$${p.avg_cost.toFixed(2)}` : "—";
@@ -133,7 +113,7 @@ async function buildSystemPrompt(): Promise<string> {
     portfolioSection += "No positions.\n";
   }
 
-  portfolioSection += `\nPortfolio rules: MM200↑ = long bias, MM200↓ = avoid. For existing positions, say add/hold/exit. New buy: check cash sufficiency. Position size between 5%-20% each.  Stop loss: for existing positions with positive P&L use a trailing stop (e.g. "15%"); for new positions use a price level (e.g. "$810").\n`;
+  portfolioSection += `\nRules: MM200↑=long, MM200↓=avoid. Existing: add/hold/exit. New buy: check cash. Size 5-20%. Stop: existing+profit→trailing% (e.g."15%"), new→price level (e.g."$810").\n`;
 
   // Build current prices section
   const priceEntries = Object.entries(currentPrices).filter(([, v]) => v !== null) as [string, number][];
@@ -141,9 +121,7 @@ async function buildSystemPrompt(): Promise<string> {
   if (priceEntries.length > 0) {
     priceEntries.sort(([a], [b]) => a.localeCompare(b));
     pricesSection =
-      "\n## Current market prices (live, fetched from Yahoo Finance)\n" +
-      "Use these as today's prices when setting entryPrice for BUY recommendations.\n" +
-      "Ticker|Price\n---|---\n" +
+      "\n## Live prices (Yahoo Finance) — use as entryPrice for BUY:\nTicker|Price\n---|---\n" +
       priceEntries.map(([t, p]) => `${t}|$${p.toFixed(2)}`).join("\n") +
       "\n";
   }
@@ -197,9 +175,9 @@ export async function* streamAnalysis(): AsyncGenerator<AnalysisChunk> {
     },
   ];
 
-  // Stream from Claude Sonnet 4.6
+  // Stream from Claude Sonnet 4.5
   const result = streamText({
-    model: anthropic("claude-sonnet-4.6"),
+    model: anthropic("claude-sonnet-4-5"),
     maxOutputTokens: 16000,
     system: await buildSystemPrompt(),
     messages: [{ role: "user", content: userContent }],

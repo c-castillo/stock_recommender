@@ -68,6 +68,15 @@ function isRelevantMessage(body: string): boolean {
   return true;
 }
 
+// ── Dr CS watchlist detection ─────────────────────────────────────────────────
+
+// Matches messages like "+NVDA", "+XLE", "+semiconductors", "+oil sector"
+const DR_CS_ADD_RE = /^\+[A-Za-z]/;
+
+function isDrCsAdd(body: string | null): boolean {
+  return body != null && DR_CS_ADD_RE.test(body.trim());
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function formatTs(ts: number): string {
@@ -134,7 +143,8 @@ export function loadContent(): LoadedContent {
       text += `## ${groupName}\n`;
       // Show oldest first within each group so context reads naturally
       for (const m of [...msgs].reverse()) {
-        text += `[${formatTs(m.ts)}] ${m.sender ?? "?"}: ${m.body}\n`;
+        const tag = isDrCsAdd(m.body) ? "[★ DR CS ADD] " : "";
+        text += `[${formatTs(m.ts)}] ${m.sender ?? "?"}: ${tag}${m.body}\n`;
       }
       text += "\n";
     }
