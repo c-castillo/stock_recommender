@@ -1,18 +1,45 @@
 /**
- * Sends all downloaded WhatsApp content to Claude Opus 4.6
- * and streams back an investment analysis with structured recommendations.
+ * Streams an investment analysis from a staged, cost-tiered pipeline:
+ *
+ *   Stage 1 (Haiku)  media-digest.ts   — chart/PDF → cached text digest (once)
+ *   Stage 2 (Haiku)  signals.ts        — per-ticker rollup + message ranking
+ *   Stage 3 (Sonnet) here              — narrative synthesis (streamed)
+ *   Extract (Haiku)  extract-recs      — structured recommendation array
+ *
+ * The Sonnet call's stable prefix (frozen system prompt + wiki history) is sent
+ * as a cached system message; volatile context (portfolio, live prices, memory,
+ * ranked messages, media digests) goes in the user turn, after the breakpoint.
  */
 
+import { createHash } from "crypto";
 import { anthropic } from "@ai-sdk/anthropic";
 import { streamText } from "ai";
-import fs from "fs";
-import path from "path";
-import { loadContent } from "./content-loader";
-import { listPortfolio, getCashBalance } from "@/lib/whatsapp/db";
+import {
+  listPortfolio,
+  getCashBalance,
+  getAnalysisCache,
+  setAnalysisCache,
+  type PortfolioPosition,
+} from "@/lib/whatsapp/db";
+import type { MessageForAnalysis } from "@/lib/whatsapp/db";
 import { fetchMa200Slopes } from "@/lib/ma200";
 import { loadAllWikis, updateWikiEntry } from "./wiki";
-import { extractRecommendations } from "./extract-recommendations";
+import {
+  loadAnalysisInputs,
+  renderTextBlock,
+  renderMediaDigestBlock,
+  type AnalysisStats,
+} from "./content-loader";
+import { ensureMediaDigests } from "./media-digest";
+import {
+  summarizeSignals,
+  rankAndTruncate,
+  renderSignalRollup,
+} from "./signals";
+import { recommendationsFromNarrative } from "./extract-recommendations";
+import { preAnalysisMemoryCheck, postAnalysisMemoryUpdate } from "./memory-agent";
 
+export type { AnalysisStats };
 
 // ── Current price fetcher ─────────────────────────────────────────────────────
 
@@ -32,9 +59,10 @@ async function fetchCurrentPrices(
     });
     if (res.ok) {
       const data = await res.json();
-      const results: any[] = data?.quoteResponse?.result ?? [];
+      const results: { symbol?: string; regularMarketPrice?: number }[] =
+        data?.quoteResponse?.result ?? [];
       for (const q of results) {
-        const sym = (q.symbol as string)?.toUpperCase();
+        const sym = q.symbol?.toUpperCase();
         if (sym && typeof q.regularMarketPrice === "number") {
           prices[sym] = q.regularMarketPrice;
         }
@@ -47,57 +75,46 @@ async function fetchCurrentPrices(
   return prices;
 }
 
-// ── System prompt ─────────────────────────────────────────────────────────────
+// ── Stable system prompt (frozen → cacheable prefix) ──────────────────────────
 
 const SYSTEM_PROMPT = `Expert financial analyst. US equities only (no options; inverse ETFs for shorts). Broker: Zesty.
 
 PHILOSOPHY: Trend follower (Gartman #19). Strong banks=stable markets. MM200/12mMA slope ↑→long bias, ↓→avoid/short. NH>NL=healthy→aggressive longs; opposite→shorts. Primary setup: Big Bases (Fibonacci main, Demark secondary).
 
-METHODOLOGY: Extract all tickers (text/images/PDFs). Sentiment per mention: bullish/bearish/neutral ("skeletor"=bearish; watch irony/sarcasm). Credibility: technical/fundamental>opinions>rumors; prioritize Dr CS & PDF reports. Note consensus vs isolated views.
+METHODOLOGY: Extract all tickers (text + media digests). Sentiment per mention: bullish/bearish/neutral ("skeletor"=bearish; watch irony/sarcasm). Credibility: technical/fundamental>opinions>rumors; prioritize Dr CS & PDF reports. Note consensus vs isolated views. A Stage-2 signal rollup and per-file media digests are provided as pre-analysis — weigh them but verify against the raw messages.
 
-★ DR CS ADD [HIGHEST PRIORITY]: [★ DR CS ADD] tags = Dr CS added ticker to watchlist (+TICKER). Strongest bullish signal; overrides all others. Confidence≥85 unless session content explicitly contradicts. Always include in JSON; sort to top if multiple.
+★ DR CS ADD [HIGHEST PRIORITY]: [★ DR CS ADD] tags = Dr CS added ticker to watchlist (+TICKER). Strongest bullish signal; overrides all others. Confidence≥85 unless session content explicitly contradicts. Sort to top if multiple.
 
-OUTPUT:
+OUTPUT (Markdown report — do NOT emit a JSON block; structured data is extracted separately):
 📊 Market summary
 🔍 Per-ticker: what was said, sentiment, argument strength, sources
-💡 Recommendations (narrative+rationale)
-📋 End with this JSON (action=BUY|SELL|HOLD, confidence=0-100, null if unknown):
-\`\`\`json
-[{"ticker":"NVDA","company":"NVIDIA Corporation","action":"BUY","confidence":88,"entryPrice":"$850","priceTarget":"$1050","stopLoss":"$810","reasoning":"...","mentions":9,"sources":["..."]}]
-\`\`\`
-`;
+💡 Recommendations: for each, state action (BUY|SELL|HOLD), confidence 0-100, entry price, price target, stop loss, and rationale in prose.`;
 
-// ── Portfolio context injector ────────────────────────────────────────────────
+// ── Volatile portfolio context (after the cache breakpoint) ───────────────────
 
-async function buildSystemPrompt(): Promise<string> {
+async function buildPortfolioContext(): Promise<string> {
   const positions = listPortfolio();
   const cash = getCashBalance();
-
-  // Collect all tickers: portfolio + wiki files
-  const wikiDir = path.join(process.cwd(), "wiki");
-  const wikiTickers = fs.existsSync(wikiDir)
-    ? fs.readdirSync(wikiDir)
-        .filter((f) => f.endsWith(".md"))
-        .map((f) => f.replace(/\.md$/, "").toUpperCase())
-    : [];
   const portfolioTickers = positions.map((p) => p.ticker);
-  const allTickers = [...new Set([...portfolioTickers, ...wikiTickers])];
 
-  // Fetch MM200 slopes and current prices in parallel
   const [slopes, currentPrices] = await Promise.all([
-    positions.length > 0 ? fetchMa200Slopes(portfolioTickers) : Promise.resolve({} as Record<string, number | null>),
-    fetchCurrentPrices(allTickers),
+    positions.length > 0
+      ? fetchMa200Slopes(portfolioTickers)
+      : Promise.resolve({} as Record<string, number | null>),
+    portfolioTickers.length > 0
+      ? fetchCurrentPrices(portfolioTickers)
+      : Promise.resolve({} as Record<string, number | null>),
   ]);
 
-  let portfolioSection = "\n## Portfolio\n";
+  let section = "\n## Portfolio\n";
 
   if (cash !== null) {
-    portfolioSection += `Cash: $${cash.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n`;
+    section += `Cash: $${cash.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n`;
   }
 
   if (positions.length > 0) {
-    portfolioSection += "\nTicker|Shares|AvgCost|Price|MktVal|P&L|MM200\n";
-    portfolioSection += "---|---|---|---|---|---|---\n";
+    section += "\nTicker|Shares|AvgCost|Price|MktVal|P&L|MM200\n";
+    section += "---|---|---|---|---|---|---\n";
     for (const p of positions) {
       const avgCost = p.avg_cost != null ? `$${p.avg_cost.toFixed(2)}` : "—";
       const price = p.current_price != null ? `$${p.current_price.toFixed(2)}` : "—";
@@ -107,49 +124,73 @@ async function buildSystemPrompt(): Promise<string> {
         : "—";
       const slope = slopes[p.ticker];
       const slopeStr = slope != null ? `${slope >= 0 ? "↑+" : "↓"}${slope.toFixed(2)}%` : "—";
-      portfolioSection += `${p.ticker}|${p.shares}|${avgCost}|${price}|${mv}|${pl}|${slopeStr}\n`;
+      section += `${p.ticker}|${p.shares}|${avgCost}|${price}|${mv}|${pl}|${slopeStr}\n`;
     }
   } else {
-    portfolioSection += "No positions.\n";
+    section += "No positions.\n";
   }
 
-  portfolioSection += `\nRules: MM200↑=long, MM200↓=avoid. Existing: add/hold/exit. New buy: check cash. Size 5-20%. Stop: existing+profit→trailing% (e.g."15%"), new→price level (e.g."$810").\n`;
+  section += `\nRules: MM200↑=long, MM200↓=avoid. Existing: add/hold/exit. New buy: check cash. Size 5-20%. Stop: existing+profit→trailing% (e.g."15%"), new→price level (e.g."$810").\n`;
 
-  // Build current prices section
+  // Live prices for portfolio tickers — used as entryPrice for BUYs.
   const priceEntries = Object.entries(currentPrices).filter(([, v]) => v !== null) as [string, number][];
-  let pricesSection = "";
   if (priceEntries.length > 0) {
     priceEntries.sort(([a], [b]) => a.localeCompare(b));
-    pricesSection =
+    section +=
       "\n## Live prices (Yahoo Finance) — use as entryPrice for BUY:\nTicker|Price\n---|---\n" +
       priceEntries.map(([t, p]) => `${t}|$${p.toFixed(2)}`).join("\n") +
       "\n";
   }
 
-  const wikiSection = loadAllWikis();
+  return section;
+}
 
-  return SYSTEM_PROMPT + portfolioSection + pricesSection + (wikiSection ? `\n${wikiSection}` : "");
+// ── Result cache ──────────────────────────────────────────────────────────────
+
+/**
+ * How long a cached analysis stays valid. A re-run within this window whose
+ * message/media/portfolio inputs are unchanged replays the cached report and
+ * makes ZERO Claude calls. Kept short so live BUY entry prices in a replayed
+ * report don't drift far from the market (see dynamic-pricing requirement).
+ */
+const ANALYSIS_CACHE_TTL_MS = 90 * 60 * 1000; // 90 minutes
+
+/**
+ * Fingerprints the inputs that actually determine the report: the set of
+ * messages, their media digests, and current portfolio holdings. Live prices
+ * are intentionally excluded — they change every run, so the short TTL (not the
+ * hash) bounds their staleness.
+ */
+function analysisInputsHash(
+  textRows: MessageForAnalysis[],
+  mediaRows: MessageForAnalysis[],
+  positions: PortfolioPosition[]
+): string {
+  const h = createHash("sha256");
+  for (const r of textRows) h.update(r.id + "\n");
+  h.update("|media|");
+  for (const r of mediaRows) h.update(r.id + ":" + (r.media_digest ?? "") + "\n");
+  h.update("|portfolio|");
+  for (const p of positions) h.update(`${p.ticker}:${p.shares}:${p.avg_cost ?? ""}\n`);
+  return h.digest("hex");
 }
 
 // ── Streaming generator ───────────────────────────────────────────────────────
 
-export interface AnalysisStats {
-  textMessages: number;
-  images: number;
-  documents: number;
-  groups: string[];
-}
-
 interface AnalysisChunk {
-  type: "stats" | "text" | "done" | "error";
+  type: "stats" | "text" | "recommendations" | "done" | "error";
   content?: string;
   stats?: AnalysisStats;
+  recommendations?: AIRecommendation[];
   error?: string;
 }
 
 export async function* streamAnalysis(): AsyncGenerator<AnalysisChunk> {
-  // Load all downloaded content
-  const { blocks, stats } = loadContent();
+  // Stage 1: ensure every chart/PDF in the window has a cached digest.
+  // Idempotent — usually a no-op when digesting already happened at ingestion.
+  await ensureMediaDigests(7);
+
+  const { textRows, mediaRows, stats } = loadAnalysisInputs();
 
   if (stats.textMessages === 0 && stats.images === 0 && stats.documents === 0) {
     yield {
@@ -160,26 +201,66 @@ export async function* streamAnalysis(): AsyncGenerator<AnalysisChunk> {
     return;
   }
 
-  // Emit stats so the UI can show what's being analyzed
   yield { type: "stats", stats };
 
-  // Build the user message
-  const userContent = [
-    ...blocks,
-    {
-      type: "text" as const,
-      text:
-        "\n---\n" +
-        `Analiza todo el contenido anterior (${stats.textMessages} mensajes, ${stats.images} imágenes, ${stats.documents} documentos PDF de ${stats.groups.length} grupo(s) — últimos 7 días desde la base de datos) ` +
-        "y genera el informe de inversión completo con el JSON estructurado al final.",
-    },
-  ];
+  // Result cache: if the underlying content + portfolio are unchanged and the
+  // last report is still fresh, replay it instead of re-running the pipeline.
+  const positions = listPortfolio();
+  const inputsHash = analysisInputsHash(textRows, mediaRows, positions);
+  const cached = getAnalysisCache();
+  if (
+    cached &&
+    cached.hash === inputsHash &&
+    Date.now() - cached.createdAt < ANALYSIS_CACHE_TTL_MS
+  ) {
+    if (cached.narrative) yield { type: "text", content: cached.narrative };
+    yield {
+      type: "recommendations",
+      recommendations: cached.recommendations as AIRecommendation[],
+    };
+    yield { type: "done" };
+    return;
+  }
 
-  // Stream from Claude Sonnet 4.5
+  const today = new Date().toISOString().slice(0, 10);
+
+  // Run memory check, portfolio context, and Stage-2 signal rollup in parallel.
+  const [memoryContext, portfolioContext, rollup] = await Promise.all([
+    preAnalysisMemoryCheck(),
+    buildPortfolioContext(),
+    summarizeSignals(textRows),
+  ]);
+
+  // #5 — rank raw messages by Stage-2 conviction, keep Dr CS verbatim, truncate.
+  const ranked = rankAndTruncate(textRows, rollup);
+
+  // Stable, cacheable prefix: frozen prompt + accumulated wiki history.
+  const stablePrefix = SYSTEM_PROMPT + "\n" + loadAllWikis();
+
+  // Volatile user turn (after the cache breakpoint).
+  const userContent =
+    renderSignalRollup(rollup) +
+    renderTextBlock(ranked) +
+    renderMediaDigestBlock(mediaRows) +
+    portfolioContext +
+    memoryContext +
+    "\n---\n" +
+    `Analiza todo el contenido anterior (${ranked.length} mensajes priorizados, ${stats.images} imágenes, ${stats.documents} documentos PDF de ${stats.groups.length} grupo(s) — últimos 7 días) ` +
+    "y genera el informe de inversión completo en Markdown.";
+
+  // Stage 3: synthesis on Sonnet. Stable prefix cached; volatile turn after it.
   const result = streamText({
-    model: anthropic("claude-sonnet-4-5"),
-    maxOutputTokens: 16000,
-    system: await buildSystemPrompt(),
+    model: anthropic("claude-sonnet-4-6"),
+    maxOutputTokens: 32000,
+    system: [
+      {
+        role: "system",
+        content: stablePrefix,
+        providerOptions: {
+          anthropic: { cacheControl: { type: "ephemeral", ttl: "1h" } },
+        },
+      },
+    ],
     messages: [{ role: "user", content: userContent }],
   });
 
@@ -189,21 +270,38 @@ export async function* streamAnalysis(): AsyncGenerator<AnalysisChunk> {
     yield { type: "text", content: chunk };
   }
 
-  // Persist new entries to each ticker's wiki file
-  const today = new Date().toISOString().slice(0, 10);
-  const recommendations = extractRecommendations(fullText);
+  // #3 — structured recommendations via a cheap Haiku extraction pass.
+  const recommendations = await recommendationsFromNarrative(fullText);
+  yield { type: "recommendations", recommendations };
+
+  // Cache the finished report so an unchanged re-run within the TTL replays it
+  // with zero Claude calls.
+  setAnalysisCache({
+    hash: inputsHash,
+    createdAt: Date.now(),
+    narrative: fullText,
+    recommendations,
+    stats,
+  });
+
+  // Persist per-ticker wiki history from the structured recs.
   for (const rec of recommendations) {
     try {
       updateWikiEntry(rec, today);
     } catch {
-      // Non-fatal: wiki write failure should not break the response
+      // Non-fatal
     }
+  }
+
+  // Update cross-session memory (non-blocking).
+  if (recommendations.length > 0) {
+    postAnalysisMemoryUpdate(JSON.stringify(recommendations), today).catch(() => {});
   }
 
   yield { type: "done" };
 }
 
-// ── Recommendation extractor ──────────────────────────────────────────────────
+// ── Recommendation type ───────────────────────────────────────────────────────
 
 export interface AIRecommendation {
   ticker: string;
@@ -218,4 +316,3 @@ export interface AIRecommendation {
   sources: string[];
   generatedAt?: number;
 }
-

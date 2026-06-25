@@ -71,6 +71,13 @@ function initSchema(db: Database.Database) {
       generated_at INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS portfolio_history (
+      date         TEXT PRIMARY KEY,
+      total_value  REAL NOT NULL,
+      market_value REAL NOT NULL,
+      cash_balance REAL NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_messages_jid ON wa_messages(jid);
     CREATE INDEX IF NOT EXISTS idx_messages_ts  ON wa_messages(ts DESC);
   `);
@@ -86,6 +93,9 @@ function initSchema(db: Database.Database) {
     "ALTER TABLE portfolio ADD COLUMN market_value REAL",
     "ALTER TABLE portfolio ADD COLUMN unrealized_pl REAL",
     "ALTER TABLE portfolio ADD COLUMN unrealized_pl_pc REAL",
+    // Cached Haiku digest of a chart image / PDF, produced once at ingestion so
+    // the synthesis call never re-sends raw base64 media. JSON-encoded.
+    "ALTER TABLE wa_messages ADD COLUMN media_digest TEXT",
   ];
   for (const sql of migrations) {
     try { db.exec(sql); } catch { /* column already exists */ }
@@ -283,6 +293,7 @@ export interface MessageForAnalysis {
   media_mime: string | null;
   media_filename: string | null;
   media_path: string | null;
+  media_digest: string | null;
 }
 
 /**
@@ -297,7 +308,7 @@ export function getContentForAnalysis(
   return getDb()
     .prepare(
       `SELECT m.id, m.jid, g.name AS group_name, m.sender, m.body, m.ts,
-              m.media_type, m.media_mime, m.media_filename, m.media_path
+              m.media_type, m.media_mime, m.media_filename, m.media_path, m.media_digest
        FROM wa_messages m
        JOIN wa_groups g ON m.jid = g.jid
        WHERE g.selected = 1 AND m.ts >= ?
@@ -305,6 +316,13 @@ export function getContentForAnalysis(
        LIMIT ?`
     )
     .all(since, maxMessages) as MessageForAnalysis[];
+}
+
+/** Persist a Haiku-generated digest for a single media message (Stage 1). */
+export function setMediaDigest(id: string, digest: string): void {
+  getDb()
+    .prepare("UPDATE wa_messages SET media_digest = ? WHERE id = ?")
+    .run(digest, id);
 }
 
 export function getRecentMessages(
@@ -401,6 +419,58 @@ export function getCashBalance(): number | null {
   return isNaN(n) ? null : n;
 }
 
+// ── Portfolio goal ────────────────────────────────────────────────────────────
+
+export interface PortfolioGoal {
+  amount: number;
+  deadline: string; // ISO date string, e.g. "2026-12-31"
+}
+
+export function setPortfolioGoal(goal: PortfolioGoal) {
+  getDb()
+    .prepare(`INSERT INTO kv_store (key, value) VALUES ('portfolio_goal', ?)
+              ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+    .run(JSON.stringify(goal));
+}
+
+export function getPortfolioGoal(): PortfolioGoal | null {
+  const row = getDb()
+    .prepare("SELECT value FROM kv_store WHERE key = 'portfolio_goal'")
+    .get() as { value: string } | undefined;
+  if (!row) return null;
+  try { return JSON.parse(row.value) as PortfolioGoal; } catch { return null; }
+}
+
+// ── Analysis result cache ─────────────────────────────────────────────────────
+
+export interface AnalysisCacheEntry {
+  /** sha256 of the analysis inputs (messages + media digests + portfolio). */
+  hash: string;
+  /** epoch ms when the report was generated. */
+  createdAt: number;
+  /** The streamed synthesis narrative (Markdown). */
+  narrative: string;
+  /** Structured recommendations extracted from the narrative. */
+  recommendations: unknown[];
+  /** Stats banner emitted before the report. */
+  stats: unknown;
+}
+
+export function getAnalysisCache(): AnalysisCacheEntry | null {
+  const row = getDb()
+    .prepare("SELECT value FROM kv_store WHERE key = 'analysis_cache'")
+    .get() as { value: string } | undefined;
+  if (!row) return null;
+  try { return JSON.parse(row.value) as AnalysisCacheEntry; } catch { return null; }
+}
+
+export function setAnalysisCache(entry: AnalysisCacheEntry): void {
+  getDb()
+    .prepare(`INSERT INTO kv_store (key, value) VALUES ('analysis_cache', ?)
+              ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+    .run(JSON.stringify(entry));
+}
+
 // ── AI Recommendations ────────────────────────────────────────────────────────
 
 export interface StoredAIRecommendation {
@@ -448,6 +518,43 @@ export function saveAiRecommendations(recs: Omit<StoredAIRecommendation, "genera
     }
   })();
 }
+
+// ── Portfolio history ─────────────────────────────────────────────────────────
+
+export interface PortfolioSnapshot {
+  date: string;         // 'YYYY-MM-DD'
+  total_value: number;  // market_value + cash_balance
+  market_value: number;
+  cash_balance: number;
+}
+
+export function upsertPortfolioSnapshot(snapshot: PortfolioSnapshot): void {
+  getDb()
+    .prepare(
+      `INSERT INTO portfolio_history (date, total_value, market_value, cash_balance)
+       VALUES (@date, @total_value, @market_value, @cash_balance)
+       ON CONFLICT(date) DO UPDATE SET
+         total_value  = @total_value,
+         market_value = @market_value,
+         cash_balance = @cash_balance`
+    )
+    .run(snapshot);
+}
+
+export function getPortfolioHistory(days = 90): PortfolioSnapshot[] {
+  return (
+    getDb()
+      .prepare(
+        `SELECT date, total_value, market_value, cash_balance
+         FROM portfolio_history
+         ORDER BY date DESC
+         LIMIT ?`
+      )
+      .all(days) as PortfolioSnapshot[]
+  ).reverse();
+}
+
+// ── AI Recommendations ────────────────────────────────────────────────────────
 
 export function loadAiRecommendations(): StoredAIRecommendation[] {
   return (
