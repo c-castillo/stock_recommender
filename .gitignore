@@ -40,9 +40,6 @@ yarn-error.log*
 # wiki files
 wiki/
 
-# vercel
-.vercel
-
 # typescript
 *.tsbuildinfo
 next-env.d.ts
