@@ -145,6 +145,9 @@ export default function Dashboard() {
 
   // Portfolio goal
   const [portfolioGoal, setPortfolioGoalState] = useState<{ amount: number; deadline: string } | null>(null);
+  // Reading the clock during render is impure; hold "now" in state so the goal
+  // countdown stays accurate without making render non-deterministic.
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   // Portfolio history
   const [portfolioHistory, setPortfolioHistory] = useState<PortfolioSnapshot[]>([]);
@@ -157,7 +160,8 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    pollStatus();
+    async function run() { await pollStatus(); }
+    run();
     const id = setInterval(pollStatus, 2000);
     return () => clearInterval(id);
   }, [pollStatus]);
@@ -167,11 +171,18 @@ export default function Dashboard() {
     if (res?.ok) { const d = await res.json(); if (d.recommendations?.length) setAiRecs(d.recommendations); }
   }, []);
 
-  useEffect(() => { loadSavedRecs(); }, [loadSavedRecs]);
-
   useEffect(() => {
-    if (waStatus.status === "disconnected") { setSyncSelectedJids(new Set()); }
-  }, [waStatus.status]);
+    async function run() { await loadSavedRecs(); }
+    run();
+  }, [loadSavedRecs]);
+
+  // Clear the group selection when the connection drops on its own. User-initiated
+  // disconnects clear it in their own handlers; this covers a drop seen by pollStatus.
+  const [prevWaStatus, setPrevWaStatus] = useState(waStatus.status);
+  if (prevWaStatus !== waStatus.status) {
+    setPrevWaStatus(waStatus.status);
+    if (waStatus.status === "disconnected") setSyncSelectedJids(new Set());
+  }
 
   const pollJob = useCallback(async () => {
     const res = await fetch("/api/whatsapp/sync-job").catch(() => null);
@@ -183,7 +194,10 @@ export default function Dashboard() {
     }
   }, []);
 
-  useEffect(() => { pollJob(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    async function run() { await pollJob(); }
+    run();
+  }, [pollJob]);
 
   const loadPortfolioHistory = useCallback(async () => {
     const res = await fetch("/api/portfolio/history").catch(() => null);
@@ -228,16 +242,29 @@ export default function Dashboard() {
     }).catch(() => null);
   }, []);
 
-  useEffect(() => { loadPortfolio(); }, [loadPortfolio]);
-  useEffect(() => { loadPortfolioHistory(); }, [loadPortfolioHistory]);
+  useEffect(() => {
+    async function run() { await loadPortfolio(); }
+    run();
+  }, [loadPortfolio]);
+  useEffect(() => {
+    async function run() { await loadPortfolioHistory(); }
+    run();
+  }, [loadPortfolioHistory]);
   useEffect(() => {
     const tickers = portfolio.map((p) => p.ticker);
-    if (tickers.length > 0) loadMa200(tickers);
+    async function run() { await loadMa200(tickers); }
+    if (tickers.length > 0) run();
   }, [portfolio, loadMa200]);
   useEffect(() => {
     const tickers = aiRecs.map((r) => r.ticker.toUpperCase());
-    if (tickers.length > 0) loadMa200(tickers);
+    async function run() { await loadMa200(tickers); }
+    if (tickers.length > 0) run();
   }, [aiRecs, loadMa200]);
+
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 60000);
+    return () => clearInterval(id);
+  }, []);
 
   // Auto-scroll analysis panel
   useEffect(() => {
@@ -261,7 +288,12 @@ export default function Dashboard() {
   }
 
   function toggleSyncGroup(jid: string) {
-    setSyncSelectedJids((prev) => { const n = new Set(prev); n.has(jid) ? n.delete(jid) : n.add(jid); return n; });
+    setSyncSelectedJids((prev) => {
+      const n = new Set(prev);
+      if (n.has(jid)) n.delete(jid);
+      else n.add(jid);
+      return n;
+    });
   }
   function selectAllSync(selected: boolean) {
     setSyncSelectedJids(selected ? new Set(waStatus.groups.map((g) => g.jid)) : new Set());
@@ -656,7 +688,7 @@ export default function Dashboard() {
               const totalValue = totalMktVal + (cashBalance ?? 0);
               const pct = Math.min((totalValue / portfolioGoal.amount) * 100, 100);
               const deadline = new Date(portfolioGoal.deadline + "T00:00:00");
-              const daysLeft = Math.max(0, Math.ceil((deadline.getTime() - Date.now()) / 86400000));
+              const daysLeft = Math.max(0, Math.ceil((deadline.getTime() - nowMs) / 86400000));
               const remaining = portfolioGoal.amount - totalValue;
               const fmt = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
               return (
