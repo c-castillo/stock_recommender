@@ -6,7 +6,7 @@
  * Haiku recommendation extraction. The narrative is streamed to stdout and the
  * structured recommendations are printed as a table at the end.
  *
- *   npm run analyze
+ *   pnpm analyze
  *
  * Requires ANTHROPIC_API_KEY (loaded from .env.local via `tsx --env-file`) and
  * must run from the repo root so the SQLite DB at .whatsapp/messages.db resolves.
