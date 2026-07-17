@@ -29,6 +29,56 @@ const MessageCtor = (WWebJS as unknown as {
   Message: new (client: Client, data: unknown) => Message;
 }).Message;
 
+// ── WhatsApp Web internals (browser context) ──────────────────────────────────
+//
+// The evaluate() blocks below reach into WhatsApp Web's minified, undocumented
+// `window.Store`. These declarations cover only the slice we touch. They are a
+// description of observed runtime shape, not a contract — any WhatsApp release
+// can rename or drop these, which is why every call site stays defensive and
+// the optional members are marked optional rather than assumed present.
+
+interface WaMsgModel {
+  t?: number;
+  messageTimestamp?: number;
+  isNotification?: boolean;
+}
+
+interface WaMsgLoadState {
+  isFullyLoaded?: boolean;
+  set?: (patch: { isFullyLoaded: boolean }) => void;
+}
+
+interface WaMsgCollection {
+  msgLoadState?: WaMsgLoadState;
+  getModelsArray(): WaMsgModel[];
+}
+
+interface WaChat {
+  id: unknown;
+  endOfHistoryTransferType?: number;
+  msgs: WaMsgCollection;
+}
+
+interface WaWindow {
+  Store: {
+    WidFactory: { createWid(id: string): unknown };
+    Chat: { get(wid: unknown): WaChat | null | undefined };
+    HistorySync: {
+      sendPeerDataOperationRequest(type: number, opts: { chatId: unknown }): Promise<void>;
+    };
+    ConversationMsgs: {
+      loadEarlierMsgs(chat: WaChat, msgs: WaMsgCollection): Promise<void>;
+      loadAfterMsgsBatch?: (chat: WaChat, msgs: WaMsgCollection) => Promise<void>;
+      loadAfterMsgs?: (chat: WaChat, msgs: WaMsgCollection) => Promise<void>;
+    };
+    Cmd: { openChatBottom(opts: { chat: WaChat }): Promise<void> };
+  };
+  WWebJS: {
+    getChat(chatId: string, opts: { getAsModel: boolean }): Promise<WaChat | null>;
+    getMessageModel(msg: WaMsgModel): unknown;
+  };
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type GroupSyncStatus =
@@ -311,8 +361,8 @@ async function triggerHistoryLoad(client: Client, jid: string): Promise<void> {
   const page = client.pupPage;
   if (!page) return;
 
-  await (page as any).evaluate(async (chatId: string) => {
-    const w = window as any;
+  await page.evaluate(async (chatId: string) => {
+    const w = window as unknown as WaWindow;
     try {
       const chatWid = w.Store.WidFactory.createWid(chatId);
       const chat = w.Store.Chat.get(chatWid);
@@ -324,7 +374,7 @@ async function triggerHistoryLoad(client: Client, jid: string): Promise<void> {
       chat.endOfHistoryTransferType = 0;
       try {
         await w.Store.HistorySync.sendPeerDataOperationRequest(3, { chatId: chat.id });
-      } catch (_) { /* ignore */ }
+      } catch { /* ignore */ }
       chat.endOfHistoryTransferType = prevTransferType;
 
       // (B) In-browser pager — reset "fully loaded" so it sends a server request.
@@ -335,8 +385,8 @@ async function triggerHistoryLoad(client: Client, jid: string): Promise<void> {
       }
       try {
         await w.Store.ConversationMsgs.loadEarlierMsgs(chat, chat.msgs);
-      } catch (_) { /* ignore */ }
-    } catch (_) { /* ignore */ }
+      } catch { /* ignore */ }
+    } catch { /* ignore */ }
   }, jid);
 }
 
@@ -352,8 +402,8 @@ async function triggerLatestLoad(client: Client, jid: string): Promise<void> {
   const page = client.pupPage;
   if (!page) return;
 
-  await (page as any).evaluate(async (chatId: string) => {
-    const w = window as any;
+  await page.evaluate(async (chatId: string) => {
+    const w = window as unknown as WaWindow;
     try {
       const chatWid = w.Store.WidFactory.createWid(chatId);
       const chat = w.Store.Chat.get(chatWid);
@@ -367,15 +417,15 @@ async function triggerLatestLoad(client: Client, jid: string): Promise<void> {
       }
 
       // (A) Scroll-to-bottom — fetches the most recent messages from server.
-      try { await w.Store.Cmd.openChatBottom({ chat }); } catch (_) { /* ignore */ }
+      try { await w.Store.Cmd.openChatBottom({ chat }); } catch { /* ignore */ }
 
       // (B) Forward pager, if this WhatsApp build exposes it.
       try {
         const cm = w.Store.ConversationMsgs;
         const loadAfter = cm?.loadAfterMsgsBatch ?? cm?.loadAfterMsgs;
         if (loadAfter) await loadAfter(chat, chat.msgs);
-      } catch (_) { /* ignore */ }
-    } catch (_) { /* ignore */ }
+      } catch { /* ignore */ }
+    } catch { /* ignore */ }
   }, jid);
 }
 
@@ -391,17 +441,17 @@ async function fetchGroupMessages(client: Client, jid: string, limit: number): P
   const page = client.pupPage;
   if (!page) return [];
 
-  const models: any[] = await (page as any).evaluate(
+  const models: unknown[] = await page.evaluate(
     async (chatId: string, lim: number) => {
-      const w = window as any;
+      const w = window as unknown as WaWindow;
       const chat = await w.WWebJS.getChat(chatId, { getAsModel: false });
       if (!chat) return [];
-      let msgs: any[] = chat.msgs.getModelsArray().filter((m: any) => !m.isNotification);
+      let msgs = chat.msgs.getModelsArray().filter((m) => !m.isNotification);
       if (lim > 0 && msgs.length > lim) {
-        msgs.sort((a: any, b: any) => (a.t > b.t ? 1 : -1));
+        msgs.sort((a, b) => ((a.t ?? 0) > (b.t ?? 0) ? 1 : -1));
         msgs = msgs.slice(msgs.length - lim);
       }
-      return msgs.map((m: any) => w.WWebJS.getMessageModel(m));
+      return msgs.map((m) => w.WWebJS.getMessageModel(m));
     },
     jid,
     limit
@@ -415,18 +465,18 @@ async function getNewestBrowserMsgTs(client: Client, jid: string): Promise<numbe
   const page = client.pupPage;
   if (!page) return null;
 
-  return (page as any).evaluate((chatId: string) => {
-    const w = window as any;
+  return page.evaluate((chatId: string) => {
+    const w = window as unknown as WaWindow;
     try {
       const chatWid = w.Store.WidFactory.createWid(chatId);
       const chat = w.Store.Chat.get(chatWid);
-      const msgs: any[] = chat?.msgs?.getModelsArray() ?? [];
+      const msgs = chat?.msgs?.getModelsArray() ?? [];
       if (!msgs.length) return null;
       return msgs.reduce((max, m) => {
         const t = m.t ?? m.messageTimestamp ?? null;
         return t !== null && t > max ? t : max;
-      }, -Infinity) as number;
-    } catch (_) {
+      }, -Infinity);
+    } catch {
       return null;
     }
   }, jid);
@@ -458,18 +508,18 @@ async function getOldestBrowserMsgTs(client: Client, jid: string): Promise<numbe
   const page = client.pupPage;
   if (!page) return null;
 
-  return (page as any).evaluate((chatId: string) => {
-    const w = window as any;
+  return page.evaluate((chatId: string) => {
+    const w = window as unknown as WaWindow;
     try {
       const chatWid = w.Store.WidFactory.createWid(chatId);
       const chat = w.Store.Chat.get(chatWid);
-      const msgs: any[] = chat?.msgs?.getModelsArray() ?? [];
+      const msgs = chat?.msgs?.getModelsArray() ?? [];
       if (!msgs.length) return null;
       return msgs.reduce((min, m) => {
         const t = m.t ?? m.messageTimestamp ?? null;
         return t !== null && t < min ? t : min;
-      }, Infinity) as number;
-    } catch (_) {
+      }, Infinity);
+    } catch {
       return null;
     }
   }, jid);
@@ -480,13 +530,13 @@ async function getChatMsgCount(client: Client, jid: string): Promise<number> {
   const page = client.pupPage;
   if (!page) return 0;
 
-  return (page as any).evaluate((chatId: string) => {
-    const w = window as any;
+  return page.evaluate((chatId: string) => {
+    const w = window as unknown as WaWindow;
     try {
       const chatWid = w.Store.WidFactory.createWid(chatId);
       const chat = w.Store.Chat.get(chatWid);
       return chat?.msgs?.getModelsArray()?.length ?? 0;
-    } catch (_) {
+    } catch {
       return 0;
     }
   }, jid);
