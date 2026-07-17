@@ -1,0 +1,12 @@
+# next pins postcss to an exact vulnerable version (GHSA-qx2v-qp2m-jg93); this
+# lifts its internal copy to the patched line.
+overrides:
+  postcss: '>=8.5.10'
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true
+  puppeteer: true
+  sharp: true
+  unrs-resolver: true
+minimumReleaseAgeExclude:
+  - '@anthropic-ai/sdk@0.112.1'

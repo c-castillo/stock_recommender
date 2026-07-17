@@ -4,10 +4,12 @@ A [Next.js](https://nextjs.org) app that ingests WhatsApp trading-group messages
 
 ## Getting Started
 
-Run the development server:
+This project uses [pnpm](https://pnpm.io). Install dependencies, then run the
+development server:
 
 ```bash
-npm run dev
+pnpm install
+pnpm dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
