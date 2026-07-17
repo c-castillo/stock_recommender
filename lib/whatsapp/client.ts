@@ -10,6 +10,7 @@
 import { Client, LocalAuth, type Message } from "whatsapp-web.js";
 import path from "path";
 import os from "os";
+import fs from "fs";
 import { upsertGroups, insertMessage, listGroups } from "./db";
 import { downloadAndSave } from "./media";
 
@@ -36,17 +37,27 @@ interface State {
   error: string | null;
 }
 
-let state: State = { status: "disconnected", qr: null, error: null };
-let wClient: Client | null = null;
+// Pin the connection on globalThis so it survives Next.js dev hot-reloads.
+// Module-level `let`s are reset to their initializers whenever Turbopack
+// re-evaluates this module (e.g. after editing any file in its import graph),
+// which would orphan a live Puppeteer client: the recompiled route sees
+// wClient = null ("not connected") while older routes still hold the real one.
+interface WaGlobal {
+  state: State;
+  wClient: Client | null;
+}
+const g = globalThis as unknown as { __waClient?: WaGlobal };
+g.__waClient ??= { state: { status: "disconnected", qr: null, error: null }, wClient: null };
+const store = g.__waClient;
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export function getStatus(): Readonly<State> {
-  return state;
+  return store.state;
 }
 
 export function getClient(): Client | null {
-  return wClient;
+  return store.wClient;
 }
 
 export function getGroups() {
@@ -55,40 +66,45 @@ export function getGroups() {
 
 /** Start the WhatsApp connection. Safe to call multiple times. */
 export async function connect(): Promise<void> {
-  if (wClient) return;
+  if (store.wClient) return;
 
-  state = { status: "connecting", qr: null, error: null };
+  store.state = { status: "connecting", qr: null, error: null };
 
-  wClient = new Client({
+  const wClient = new Client({
     authStrategy: new LocalAuth({ dataPath: SESSION_DIR }),
     puppeteer: {
       headless: true,
       args: ["--no-sandbox", "--disable-setuid-sandbox"],
     },
   });
+  store.wClient = wClient;
 
   wClient.on("qr", (qr) => {
     // Store raw QR string — status/route.ts converts it to a data URL
-    state = { status: "qr_ready", qr, error: null };
+    store.state = { status: "qr_ready", qr, error: null };
   });
 
   wClient.on("ready", async () => {
-    state = { status: "connected", qr: null, error: null };
+    store.state = { status: "connected", qr: null, error: null };
     await refreshGroups();
   });
 
   wClient.on("auth_failure", (msg) => {
-    state = { status: "disconnected", qr: null, error: `Auth failure: ${msg}` };
-    wClient = null;
+    store.state = { status: "disconnected", qr: null, error: `Auth failure: ${msg}` };
+    const stale = store.wClient;
+    store.wClient = null;
+    stale?.destroy().catch(() => {});
   });
 
   wClient.on("disconnected", (reason) => {
-    state = {
+    store.state = {
       status: "disconnected",
       qr: null,
       error: `Disconnected: ${reason}`,
     };
-    wClient = null;
+    const stale = store.wClient;
+    store.wClient = null;
+    stale?.destroy().catch(() => {});
   });
 
   wClient.on("message_create", async (msg) => {
@@ -99,27 +115,43 @@ export async function connect(): Promise<void> {
   // initialize() blocks until auth is complete; run it in the background
   // so connect() returns immediately and state updates via events.
   wClient.initialize().catch((err) => {
-    state = { status: "disconnected", qr: null, error: String(err) };
-    wClient = null;
+    // Puppeteer CDP throws ProtocolError when reading the body of a CORS
+    // preflight OPTIONS response — benign, ignore it once QR/ready fired.
+    if (store.state.status === "connected" || store.state.status === "qr_ready") return;
+    store.state = { status: "disconnected", qr: null, error: String(err) };
+    const stale = store.wClient;
+    store.wClient = null;
+    stale?.destroy().catch(() => {});
   });
 }
 
 /** Disconnect and destroy the browser. Does not wipe the session. */
 export function disconnect(): void {
   try {
-    wClient?.destroy();
+    store.wClient?.destroy();
   } catch {
     /* ignore */
   }
-  wClient = null;
-  state = { status: "disconnected", qr: null, error: null };
+  store.wClient = null;
+  store.state = { status: "disconnected", qr: null, error: null };
+}
+
+/** Destroy the browser, wipe saved credentials, and reset state so the next
+ *  connect() call will show a fresh QR code. */
+export async function resetSession(): Promise<void> {
+  if (store.wClient) {
+    try { await store.wClient.destroy(); } catch { /* ignore */ }
+    store.wClient = null;
+  }
+  store.state = { status: "disconnected", qr: null, error: null };
+  try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
 }
 
 /** Re-fetch all groups from WhatsApp and update the DB. */
 export async function refreshGroups(): Promise<void> {
-  if (!wClient || state.status !== "connected") return;
+  if (!store.wClient || store.state.status !== "connected") return;
   try {
-    const chats = await wClient.getChats();
+    const chats = await store.wClient.getChats();
     upsertGroups(
       chats
         .filter((c) => c.isGroup)

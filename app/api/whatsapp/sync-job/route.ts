@@ -6,6 +6,7 @@ import {
 export async function POST(request: Request) {
   const body = await request.json();
   const groups: { jid: string; name: string }[] = body.groups;
+  const backfill: boolean = body.backfill === true;
 
   if (!Array.isArray(groups) || groups.length === 0) {
     return Response.json(
@@ -15,7 +16,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const job = await startSyncJob(groups);
+    const job = await startSyncJob(groups, { backfill });
     return Response.json({ job });
   } catch (err) {
     return Response.json({ error: String(err) }, { status: 400 });
