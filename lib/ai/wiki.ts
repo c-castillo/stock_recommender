@@ -108,7 +108,7 @@ export function loadAllWikis(): string {
       const { ticker, entries } = parseWikiFile(content);
       if (entries.length === 0) continue;
 
-      for (const e of entries.slice(0, 3)) {
+      for (const e of entries.slice(0, 1)) {
         rows.push(`${ticker}|${e.date}|${e.action}|${e.confidence}%|${e.entry}|${e.target}|${e.stop}`);
       }
       // Most recent reasoning as a one-liner note
@@ -124,7 +124,7 @@ export function loadAllWikis(): string {
   if (rows.length === 0) return "";
 
   const table = [
-    "## Prior analysis history (last 3 runs per ticker)",
+    "## Prior analysis history (last run per ticker)",
     "Ticker|Date|Action|Conf|Entry|Target|Stop",
     "---|---|---|---|---|---|---",
     ...rows,

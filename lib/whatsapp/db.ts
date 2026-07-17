@@ -43,6 +43,7 @@ function initSchema(db: Database.Database) {
       media_mime     TEXT,
       media_filename TEXT,
       media_path     TEXT,
+      dr_cs_add      INTEGER NOT NULL DEFAULT 0,
       FOREIGN KEY (jid) REFERENCES wa_groups(jid) ON DELETE CASCADE
     );
 
@@ -96,6 +97,9 @@ function initSchema(db: Database.Database) {
     // Cached Haiku digest of a chart image / PDF, produced once at ingestion so
     // the synthesis call never re-sends raw base64 media. JSON-encoded.
     "ALTER TABLE wa_messages ADD COLUMN media_digest TEXT",
+    // 1 when the message is a Dr CS watchlist add ("+TICKER"). Set at insert
+    // time so the flag survives without re-deriving it from the body.
+    "ALTER TABLE wa_messages ADD COLUMN dr_cs_add INTEGER NOT NULL DEFAULT 0",
   ];
   for (const sql of migrations) {
     try { db.exec(sql); } catch { /* column already exists */ }
@@ -162,34 +166,38 @@ export interface MessageRow {
   media_path?: string | null;
 }
 
+/**
+ * A Dr CS watchlist add: a message whose body starts with "+" followed by a
+ * ticker (optionally after a space, e.g. "+VIAV" or "+ CTVA"). Excludes things
+ * like "+55% arriba" where a digit follows the "+".
+ */
+const DR_CS_ADD_RE = /^\+\s*[A-Za-z]/;
+
+export function isDrCsAdd(body: string | null | undefined): boolean {
+  return body != null && DR_CS_ADD_RE.test(body.trim());
+}
+
+const INSERT_MESSAGE_SQL = `INSERT OR IGNORE INTO wa_messages
+     (id, jid, sender, body, ts, media_type, media_mime, media_filename, media_path, dr_cs_add)
+   VALUES
+     (@id, @jid, @sender, @body, @ts, @media_type, @media_mime, @media_filename, @media_path, @dr_cs_add)`;
+
+function insertParams(msg: MessageRow) {
+  return {
+    media_type: null, media_mime: null, media_filename: null, media_path: null,
+    ...msg,
+    dr_cs_add: isDrCsAdd(msg.body) ? 1 : 0,
+  };
+}
+
 export function insertMessage(msg: MessageRow) {
-  getDb()
-    .prepare(
-      `INSERT OR IGNORE INTO wa_messages
-         (id, jid, sender, body, ts, media_type, media_mime, media_filename, media_path)
-       VALUES
-         (@id, @jid, @sender, @body, @ts, @media_type, @media_mime, @media_filename, @media_path)`
-    )
-    .run({
-      media_type: null, media_mime: null, media_filename: null, media_path: null,
-      ...msg,
-    });
+  getDb().prepare(INSERT_MESSAGE_SQL).run(insertParams(msg));
 }
 
 export function insertMessages(msgs: MessageRow[]) {
-  const stmt = getDb().prepare(
-    `INSERT OR IGNORE INTO wa_messages
-       (id, jid, sender, body, ts, media_type, media_mime, media_filename, media_path)
-     VALUES
-       (@id, @jid, @sender, @body, @ts, @media_type, @media_mime, @media_filename, @media_path)`
-  );
+  const stmt = getDb().prepare(INSERT_MESSAGE_SQL);
   const run = getDb().transaction(() => {
-    for (const m of msgs) {
-      stmt.run({
-        media_type: null, media_mime: null, media_filename: null, media_path: null,
-        ...m,
-      });
-    }
+    for (const m of msgs) stmt.run(insertParams(m));
   });
   run();
 }
