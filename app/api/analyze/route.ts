@@ -12,12 +12,15 @@ export async function POST() {
 
   const encoder = new TextEncoder();
 
-  // We need a controller reference that's reachable from the async runner
   let ctrl!: ReadableStreamDefaultController<Uint8Array>;
+  let cancelled = false;
 
   const stream = new ReadableStream<Uint8Array>({
     start(c) {
       ctrl = c;
+    },
+    cancel() {
+      cancelled = true;
     },
   });
 
@@ -25,14 +28,16 @@ export async function POST() {
   (async () => {
     try {
       for await (const chunk of streamAnalysis()) {
-        const line = `data: ${JSON.stringify(chunk)}\n\n`;
-        ctrl.enqueue(encoder.encode(line));
+        if (cancelled) break;
+        ctrl.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
       }
     } catch (err) {
-      const errChunk = { type: "error", error: String(err) };
-      ctrl.enqueue(encoder.encode(`data: ${JSON.stringify(errChunk)}\n\n`));
+      if (!cancelled) {
+        const errChunk = { type: "error", error: String(err) };
+        ctrl.enqueue(encoder.encode(`data: ${JSON.stringify(errChunk)}\n\n`));
+      }
     } finally {
-      ctrl.close();
+      if (!cancelled) ctrl.close();
     }
   })();
 
