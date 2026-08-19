@@ -177,10 +177,22 @@ export function isDrCsAdd(body: string | null | undefined): boolean {
   return body != null && DR_CS_ADD_RE.test(body.trim());
 }
 
-const INSERT_MESSAGE_SQL = `INSERT OR IGNORE INTO wa_messages
+// UPSERT (not INSERT OR IGNORE): a re-sync of an already-stored message must be
+// able to backfill media it previously failed to download. On conflict we fill
+// any media column the new row provides (COALESCE keeps the existing value when
+// the new one is null) and refresh the body — but never blank out media we
+// already have.
+const INSERT_MESSAGE_SQL = `INSERT INTO wa_messages
      (id, jid, sender, body, ts, media_type, media_mime, media_filename, media_path, dr_cs_add)
    VALUES
-     (@id, @jid, @sender, @body, @ts, @media_type, @media_mime, @media_filename, @media_path, @dr_cs_add)`;
+     (@id, @jid, @sender, @body, @ts, @media_type, @media_mime, @media_filename, @media_path, @dr_cs_add)
+   ON CONFLICT(id) DO UPDATE SET
+     media_type     = COALESCE(excluded.media_type, media_type),
+     media_mime     = COALESCE(excluded.media_mime, media_mime),
+     media_filename = COALESCE(excluded.media_filename, media_filename),
+     media_path     = COALESCE(excluded.media_path, media_path),
+     body           = COALESCE(excluded.body, body),
+     dr_cs_add      = excluded.dr_cs_add`;
 
 function insertParams(msg: MessageRow) {
   return {

@@ -19,6 +19,7 @@ import { randomUUID } from "crypto";
 import { getClient, getStatus } from "./client";
 import { countAllMessages, countAllMedia, upsertGroup, insertMessage, getNewestMessage } from "./db";
 import { downloadAndSave } from "./media";
+import { ensureSerializedId } from "./msg-id";
 import { ensureMediaDigests } from "@/lib/ai/media-digest";
 import * as WWebJS from "whatsapp-web.js";
 import type { Client, Message } from "whatsapp-web.js";
@@ -294,12 +295,14 @@ async function runJob(job: SyncJob) {
         const body = msg.body || null;
         if (!body && !msg.hasMedia) continue;
 
+        const serializedId = ensureSerializedId(msg) ?? msg.id._serialized;
+
         let mediaResult = null;
         if (msg.hasMedia) {
           try {
             mediaResult = await downloadAndSave(msg);
-          } catch {
-            /* ignore — save without media */
+          } catch (err) {
+            console.error(`[whatsapp] media download failed for ${serializedId}:`, err);
           }
         }
 
@@ -308,7 +311,7 @@ async function runJob(job: SyncJob) {
 
         try {
           insertMessage({
-            id: msg.id._serialized,
+            id: serializedId,
             jid: gp.jid,
             sender: msg.author ?? msg.from,
             body: effectiveBody,
