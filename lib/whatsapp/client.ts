@@ -13,6 +13,7 @@ import os from "os";
 import fs from "fs";
 import { upsertGroups, insertMessage, listGroups } from "./db";
 import { downloadAndSave } from "./media";
+import { ensureSerializedId } from "./msg-id";
 
 // ── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -166,7 +167,7 @@ export async function refreshGroups(): Promise<void> {
 
 async function processMessage(msg: Message) {
   const jid = msg.from;
-  const id = msg.id._serialized;
+  const id = ensureSerializedId(msg) ?? msg.id._serialized;
   const ts = msg.timestamp;
   const sender = msg.author ?? msg.from;
   const body = msg.body || null;
@@ -175,8 +176,8 @@ async function processMessage(msg: Message) {
   if (msg.hasMedia) {
     try {
       mediaResult = await downloadAndSave(msg);
-    } catch {
-      /* ignore — save message without media */
+    } catch (err) {
+      console.error(`[whatsapp] media download failed for ${id}:`, err);
     }
   }
 

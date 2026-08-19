@@ -1,6 +1,7 @@
 import { type Message } from "whatsapp-web.js";
 import path from "path";
 import fs from "fs";
+import { ensureSerializedId } from "./msg-id";
 
 const MEDIA_DIR = path.join(process.cwd(), ".whatsapp", "media");
 
@@ -26,6 +27,10 @@ const TYPE_MAP: Record<string, string> = {
  */
 export async function downloadAndSave(msg: Message): Promise<MediaResult | null> {
   if (!msg.hasMedia) return null;
+
+  // Repopulate msg.id._serialized (NULL on WhatsApp Web builds since ~Jul 2026)
+  // so the library's downloadMedia() can look the live message up by id.
+  ensureSerializedId(msg);
 
   const media = await msg.downloadMedia();
   if (!media?.data) return null;
