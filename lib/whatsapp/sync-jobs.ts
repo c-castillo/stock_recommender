@@ -17,7 +17,14 @@
 
 import { randomUUID } from "crypto";
 import { getClient, getStatus } from "./client";
-import { countAllMessages, countAllMedia, upsertGroup, insertMessage, getNewestMessage } from "./db";
+import {
+  countAllMessages,
+  countAllMedia,
+  upsertGroup,
+  insertMessage,
+  getNewestMessage,
+  getStoredMediaState,
+} from "./db";
 import { downloadAndSave } from "./media";
 import { ensureSerializedId } from "./msg-id";
 import { ensureMediaDigests } from "@/lib/ai/media-digest";
@@ -109,6 +116,11 @@ export interface SyncJob {
   groups: GroupProgress[];
   /** Backfill mode: widen the window and re-scan past history to fill gaps. */
   backfill: boolean;
+  /** Why the job as a whole failed, when it died before/outside any single
+   *  group. Without this a job-level throw left every group sitting at
+   *  "pending" with no explanation anywhere — the UI showed "En cola" forever
+   *  and the error was discarded by the catch below. */
+  error?: string;
 }
 
 // ── Singleton ─────────────────────────────────────────────────────────────────
@@ -160,9 +172,11 @@ export async function startSyncJob(
 
   activeJob = job;
 
-  runJob(job).catch(() => {
+  runJob(job).catch((err) => {
     job.status = "error";
+    job.error = errText(err);
     job.completedAt = Date.now();
+    console.error("[whatsapp] sync job failed:", err);
   });
 
   return job;
@@ -171,8 +185,23 @@ export async function startSyncJob(
 // ── Config ────────────────────────────────────────────────────────────────────
 
 const MAX_MESSAGES = 10_000;
-/** ms to wait after triggering a load before measuring growth */
+/** Upper bound on how long we wait for a triggered load to deliver messages.
+ *  Reached only when nothing arrives — see waitForGrowth(). */
 const POLL_INTERVAL_MS = 2_500;
+/** How often we re-check the browser store while waiting inside that bound.
+ *  Chunks usually land in a few hundred ms, so a fixed sleep of POLL_INTERVAL_MS
+ *  per page spent most of the sync idle: 100+ pages across all groups meant
+ *  minutes of pure waiting. Poll instead and continue the moment data lands. */
+const GROWTH_CHECK_MS = 250;
+/** Floor on a page's wall time. The waits above exist to give the server time
+ *  to deliver, but they also pace our requests: without a floor a fast-growing
+ *  chat would fire sendPeerDataOperationRequest every ~250 ms and risk being
+ *  throttled. 500 ms still cuts the old fixed 2.5 s per page by 5x. */
+const MIN_ROUND_MS = 500;
+/** How many media files to download concurrently. Each downloadMedia() is a
+ *  network fetch plus a base64 round trip over CDP; serial was the dominant
+ *  cost of Phase 2 for media-heavy groups. */
+const MEDIA_CONCURRENCY = 4;
 /** consecutive polls with no growth before we consider history exhausted.
  *  Backfill uses a higher bound: the server often dribbles out the middle of a
  *  history gap over several requests, so we give it more no-growth retries
@@ -194,7 +223,11 @@ async function runJob(job: SyncJob) {
   const client = getClient();
   if (!client) {
     job.status = "error";
+    job.error =
+      "No hay cliente de WhatsApp activo (getClient() devolvió null). " +
+      "Reconecta antes de sincronizar.";
     job.completedAt = Date.now();
+    console.error("[whatsapp]", job.error);
     return;
   }
 
@@ -203,9 +236,10 @@ async function runJob(job: SyncJob) {
   const windowDays = job.backfill ? BACKFILL_DAYS : SYNC_DAYS;
 
   for (const gp of job.groups) {
-    upsertGroup(gp.jid, gp.name);
-
     try {
+      // Inside the try: a throw here used to escape the per-group handler and
+      // abort the entire job, leaving every remaining group at "pending".
+      upsertGroup(gp.jid, gp.name);
       gp.status = "fetching";
 
       // Hard cutoff: only sync the last `windowDays` days (unix seconds).
@@ -217,6 +251,8 @@ async function runJob(job: SyncJob) {
       // Suppressed in backfill mode so the full window is re-scanned for gaps.
       const newestStored = getNewestMessage(gp.jid);
       const newestStoredTs = job.backfill ? null : (newestStored?.ts ?? null);
+
+      await ensureStoreShim(client);
 
       // ── Phase 0: force-load the most recent messages ────────────────────
       // fetchMessages / loadEarlierMsgs only ever page *backward*. If the
@@ -230,7 +266,7 @@ async function runJob(job: SyncJob) {
       await loadLatestWindow(client, gp.jid);
 
       // ── Phase 1: load history into the browser store ────────────────────
-      let loadedCount = await getChatMsgCount(client, gp.jid);
+      let loadedCount = (await getChatStats(client, gp.jid)).count;
       let stableRounds = 0;
       const maxStableRounds = job.backfill ? MAX_STABLE_ROUNDS_BACKFILL : MAX_STABLE_ROUNDS;
 
@@ -238,9 +274,12 @@ async function runJob(job: SyncJob) {
         // Fire both mechanisms each iteration so we keep feeding the server
         // with requests as it delivers chunks.
         await triggerHistoryLoad(client, gp.jid);
-        await sleep(POLL_INTERVAL_MS);
 
-        const newCount = await getChatMsgCount(client, gp.jid);
+        // Return as soon as the chunk lands rather than always burning the
+        // full POLL_INTERVAL_MS. One combined read gets the count and the
+        // oldest timestamp the loop needs, halving the CDP round trips.
+        const stats = await waitForGrowth(client, gp.jid, loadedCount);
+        const newCount = stats.count;
         gp.page += 1;
         gp.messagesReceived = newCount;
 
@@ -251,7 +290,7 @@ async function runJob(job: SyncJob) {
           stableRounds += 1;
         }
 
-        const oldestBrowserTs = await getOldestBrowserMsgTs(client, gp.jid);
+        const oldestBrowserTs = stats.oldestTs;
 
         // Early stop: browser has gone back past the cutoff. Suppressed in
         // backfill mode: the store usually already spans further back than the
@@ -278,40 +317,75 @@ async function runJob(job: SyncJob) {
       // lightweight getChat({ getAsModel: false }) path instead.
       let messages: Message[];
       try {
-        messages = await fetchGroupMessages(client, gp.jid, Math.max(loadedCount, 1));
+        // The cutoff is applied inside the browser: the store can hold 10k
+        // messages going back years, and serializing all of them across CDP
+        // just to drop most of them in Node was the bulk of Phase 2's cost.
+        messages = await fetchGroupMessages(
+          client,
+          gp.jid,
+          Math.max(loadedCount, 1),
+          cutoffTs
+        );
       } catch (err) {
         throw new Error(`fetchGroupMessages failed: ${errText(err)}`);
       }
 
-      for (const msg of messages) {
-        // Skip messages outside the 7-day window.
-        if (msg.timestamp < cutoffTs) continue;
+      // Everything we already hold in this window, and whether its media file
+      // landed. Lets us skip a message before paying for its media — including
+      // messages newer than newestStoredTs, which the live listener has usually
+      // already stored and which the timestamp cursor alone re-downloaded on
+      // every run.
+      const stored = getStoredMediaState(gp.jid, cutoffTs);
 
-        // Skip messages we already have — avoids redundant media downloads
-        // and insert attempts. INSERT OR IGNORE would handle duplicates, but
-        // this is cheaper for large already-synced groups.
+      // Collect first, then download media in parallel. Serial downloads made
+      // Phase 2 scale with (media count x round-trip latency).
+      const pending: { msg: Message; id: string; body: string | null }[] = [];
+      for (const msg of messages) {
+        if (msg.timestamp < cutoffTs) continue;
         if (newestStoredTs !== null && msg.timestamp < newestStoredTs) continue;
 
         const body = msg.body || null;
         if (!body && !msg.hasMedia) continue;
 
         const serializedId = ensureSerializedId(msg) ?? msg.id._serialized;
+        if (!serializedId) continue;
 
-        let mediaResult = null;
-        if (msg.hasMedia) {
-          try {
-            mediaResult = await downloadAndSave(msg);
-          } catch (err) {
-            console.error(`[whatsapp] media download failed for ${serializedId}:`, err);
+        // Already stored — skip, unless it is a media message whose file never
+        // made it to disk. Re-running those is the recovery path: the upsert in
+        // insertMessage() COALESCEs the media columns back in.
+        if (stored.has(serializedId) && (!msg.hasMedia || stored.get(serializedId)))
+          continue;
+
+        pending.push({ msg, id: serializedId, body });
+      }
+
+      const media = new Map<string, Awaited<ReturnType<typeof downloadAndSave>>>();
+      const withMedia = pending.filter((p) => p.msg.hasMedia);
+      let cursor = 0;
+      await Promise.all(
+        Array.from(
+          { length: Math.min(MEDIA_CONCURRENCY, withMedia.length) },
+          async () => {
+            while (cursor < withMedia.length) {
+              const { msg, id } = withMedia[cursor++];
+              try {
+                media.set(id, await downloadAndSave(msg));
+              } catch (err) {
+                console.error(`[whatsapp] media download failed for ${id}:`, err);
+              }
+            }
           }
-        }
+        )
+      );
 
+      for (const { msg, id, body } of pending) {
+        const mediaResult = media.get(id) ?? null;
         const effectiveBody =
           body ?? (mediaResult ? `[${mediaResult.media_type}]` : `[${msg.type}]`);
 
         try {
           insertMessage({
-            id: serializedId,
+            id,
             jid: gp.jid,
             sender: msg.author ?? msg.from,
             body: effectiveBody,
@@ -348,6 +422,53 @@ async function runJob(job: SyncJob) {
 }
 
 // ── Browser helpers ───────────────────────────────────────────────────────────
+
+/**
+ * Rebuild the legacy `window.Store` facade from WhatsApp Web's module registry.
+ *
+ * whatsapp-web.js 1.34 stopped injecting `window.Store` and reaches modules via
+ * `window.require` instead. Every helper below swallows errors, so without this
+ * getChatStats() reported an empty store, fetchGroupMessages() was called with
+ * limit 1, and each sync persisted only the single newest message per group.
+ * Throws (failing the group loudly) if the modules can't be resolved.
+ */
+async function ensureStoreShim(client: Client): Promise<void> {
+  const page = client.pupPage;
+  if (!page) return;
+
+  const ok = await page.evaluate(() => {
+    const w = window as unknown as Partial<WaWindow> & {
+      require?: (name: string) => Record<string, unknown>;
+    };
+    if (w.Store?.Chat) return true;
+    const req = w.require;
+    if (typeof req !== "function") return false;
+    try {
+      const load = req("WAWebChatLoadMessages") as {
+        loadEarlierMsgs(opts: { chat: WaChat }): Promise<void>;
+      };
+      w.Store = {
+        WidFactory: req("WAWebWidFactory") as WaWindow["Store"]["WidFactory"],
+        Chat: req("WAWebCollections").Chat as WaWindow["Store"]["Chat"],
+        HistorySync: req("WAWebSendNonMessageDataRequest") as WaWindow["Store"]["HistorySync"],
+        ConversationMsgs: {
+          loadEarlierMsgs: (chat) => load.loadEarlierMsgs({ chat }),
+        },
+        Cmd: req("WAWebCmd").Cmd as WaWindow["Store"]["Cmd"],
+      };
+      return Boolean(w.Store.Chat && w.Store.WidFactory);
+    } catch {
+      return false;
+    }
+  });
+
+  if (!ok) {
+    throw new Error(
+      "WhatsApp Web internals unavailable (window.Store / window.require): " +
+        "sync would silently store only the newest message"
+    );
+  }
+}
 
 /**
  * Fire both history-loading mechanisms inside the browser:
@@ -440,16 +561,29 @@ async function triggerLatestLoad(client: Client, jid: string): Promise<void> {
  * already paginated history into the store in Phase 1, so no loadEarlierMsgs
  * loop is needed — we just serialize and rebuild Message instances.
  */
-async function fetchGroupMessages(client: Client, jid: string, limit: number): Promise<Message[]> {
+async function fetchGroupMessages(
+  client: Client,
+  jid: string,
+  limit: number,
+  cutoffTs: number
+): Promise<Message[]> {
   const page = client.pupPage;
   if (!page) return [];
 
   const models: unknown[] = await page.evaluate(
-    async (chatId: string, lim: number) => {
+    async (chatId: string, lim: number, cutoff: number) => {
       const w = window as unknown as WaWindow;
       const chat = await w.WWebJS.getChat(chatId, { getAsModel: false });
       if (!chat) return [];
-      let msgs = chat.msgs.getModelsArray().filter((m) => !m.isNotification);
+      let msgs = chat.msgs.getModelsArray().filter((m) => {
+        if (m.isNotification) return false;
+        // Drop pre-cutoff messages here, before serialization. getMessageModel()
+        // produces a large object per message and the whole array crosses CDP
+        // as JSON, so filtering in Node instead would mean paying for years of
+        // history to keep one week of it.
+        const t = m.t ?? m.messageTimestamp;
+        return t === undefined || t >= cutoff;
+      });
       if (lim > 0 && msgs.length > lim) {
         msgs.sort((a, b) => ((a.t ?? 0) > (b.t ?? 0) ? 1 : -1));
         msgs = msgs.slice(msgs.length - lim);
@@ -457,32 +591,77 @@ async function fetchGroupMessages(client: Client, jid: string, limit: number): P
       return msgs.map((m) => w.WWebJS.getMessageModel(m));
     },
     jid,
-    limit
+    limit,
+    cutoffTs
   );
 
   return models.map((m) => new MessageCtor(client, m));
 }
 
-/** Return the timestamp of the newest message currently in the browser's store. */
-async function getNewestBrowserMsgTs(client: Client, jid: string): Promise<number | null> {
-  const page = client.pupPage;
-  if (!page) return null;
+/**
+ * Read everything the pagination loops need about a chat in ONE page.evaluate:
+ * how many messages the browser store holds, and the oldest/newest timestamps
+ * among them. Previously these were three separate evaluates fired several
+ * times per page — each a full CDP round trip for a single number.
+ */
+interface ChatStats {
+  count: number;
+  oldestTs: number | null;
+  newestTs: number | null;
+}
 
-  return page.evaluate((chatId: string) => {
+async function getChatStats(client: Client, jid: string): Promise<ChatStats> {
+  const page = client.pupPage;
+  if (!page) return { count: 0, oldestTs: null, newestTs: null };
+
+  return page.evaluate((chatId: string): ChatStats => {
     const w = window as unknown as WaWindow;
     try {
       const chatWid = w.Store.WidFactory.createWid(chatId);
       const chat = w.Store.Chat.get(chatWid);
       const msgs = chat?.msgs?.getModelsArray() ?? [];
-      if (!msgs.length) return null;
-      return msgs.reduce((max, m) => {
+      let oldest: number | null = null;
+      let newest: number | null = null;
+      for (const m of msgs) {
         const t = m.t ?? m.messageTimestamp ?? null;
-        return t !== null && t > max ? t : max;
-      }, -Infinity);
+        if (t === null) continue;
+        if (oldest === null || t < oldest) oldest = t;
+        if (newest === null || t > newest) newest = t;
+      }
+      return { count: msgs.length, oldestTs: oldest, newestTs: newest };
     } catch {
-      return null;
+      return { count: 0, oldestTs: null, newestTs: null };
     }
   }, jid);
+}
+
+/**
+ * Wait for the browser store to grow past `baseline`, up to POLL_INTERVAL_MS.
+ *
+ * Returns as soon as new messages land — typically a few hundred ms after the
+ * trigger — instead of always sleeping the full interval. Only a round that
+ * genuinely delivers nothing pays the whole bound, which is exactly the case
+ * where the wait is load-bearing (it is how we conclude history is exhausted).
+ */
+async function waitForGrowth(
+  client: Client,
+  jid: string,
+  baseline: number
+): Promise<ChatStats> {
+  const start = Date.now();
+  const deadline = start + POLL_INTERVAL_MS;
+  let stats = await getChatStats(client, jid);
+  while (stats.count <= baseline && Date.now() < deadline) {
+    await sleep(GROWTH_CHECK_MS);
+    stats = await getChatStats(client, jid);
+  }
+
+  const remaining = MIN_ROUND_MS - (Date.now() - start);
+  if (remaining > 0) {
+    await sleep(remaining);
+    stats = await getChatStats(client, jid); // re-read: more may have landed
+  }
+  return stats;
 }
 
 /**
@@ -491,12 +670,24 @@ async function getNewestBrowserMsgTs(client: Client, jid: string): Promise<numbe
  * MAX_LATEST_ROUNDS so a hot, constantly-updating chat can't loop forever.
  */
 async function loadLatestWindow(client: Client, jid: string): Promise<void> {
-  let prevNewest = (await getNewestBrowserMsgTs(client, jid)) ?? -Infinity;
+  let prevNewest = (await getChatStats(client, jid)).newestTs ?? -Infinity;
   let stableRounds = 0;
   for (let i = 0; i < MAX_LATEST_ROUNDS && stableRounds < 2; i++) {
     await triggerLatestLoad(client, jid);
-    await sleep(POLL_INTERVAL_MS);
-    const newest = (await getNewestBrowserMsgTs(client, jid)) ?? -Infinity;
+
+    // Poll for a newer message rather than always sleeping the full interval.
+    // With 100+ groups this phase alone used to cost a guaranteed 5 s each.
+    const start = Date.now();
+    const deadline = start + POLL_INTERVAL_MS;
+    let newest = prevNewest;
+    do {
+      await sleep(GROWTH_CHECK_MS);
+      newest = (await getChatStats(client, jid)).newestTs ?? -Infinity;
+    } while (newest <= prevNewest && Date.now() < deadline);
+
+    const remaining = MIN_ROUND_MS - (Date.now() - start);
+    if (remaining > 0) await sleep(remaining);
+
     if (newest > prevNewest) {
       prevNewest = newest;
       stableRounds = 0;
@@ -504,45 +695,6 @@ async function loadLatestWindow(client: Client, jid: string): Promise<void> {
       stableRounds += 1;
     }
   }
-}
-
-/** Return the timestamp of the oldest message currently in the browser's store. */
-async function getOldestBrowserMsgTs(client: Client, jid: string): Promise<number | null> {
-  const page = client.pupPage;
-  if (!page) return null;
-
-  return page.evaluate((chatId: string) => {
-    const w = window as unknown as WaWindow;
-    try {
-      const chatWid = w.Store.WidFactory.createWid(chatId);
-      const chat = w.Store.Chat.get(chatWid);
-      const msgs = chat?.msgs?.getModelsArray() ?? [];
-      if (!msgs.length) return null;
-      return msgs.reduce((min, m) => {
-        const t = m.t ?? m.messageTimestamp ?? null;
-        return t !== null && t < min ? t : min;
-      }, Infinity);
-    } catch {
-      return null;
-    }
-  }, jid);
-}
-
-/** Return how many messages are currently in the browser's store for this chat. */
-async function getChatMsgCount(client: Client, jid: string): Promise<number> {
-  const page = client.pupPage;
-  if (!page) return 0;
-
-  return page.evaluate((chatId: string) => {
-    const w = window as unknown as WaWindow;
-    try {
-      const chatWid = w.Store.WidFactory.createWid(chatId);
-      const chat = w.Store.Chat.get(chatWid);
-      return chat?.msgs?.getModelsArray()?.length ?? 0;
-    } catch {
-      return 0;
-    }
-  }, jid);
 }
 
 function sleep(ms: number) {

@@ -1,4 +1,4 @@
-import { getStatus, getGroups } from "@/lib/whatsapp/client";
+import { getStatus, getGroups, ensureGroups } from "@/lib/whatsapp/client";
 import { countMessages } from "@/lib/whatsapp/db";
 import QRCode from "qrcode";
 
@@ -13,6 +13,10 @@ export async function GET() {
       // ignore
     }
   }
+
+  // Self-heal: if we're connected but have no groups cached (the initial
+  // `ready` refresh raced ahead of the chat store), re-fetch before responding.
+  if (status === "connected") await ensureGroups();
 
   const groups = status === "connected" ? getGroups() : [];
   const totalMessages = status === "connected" ? countMessages() : 0;
