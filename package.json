@@ -11,11 +11,15 @@
     "build": "NODE_OPTIONS=--disable-warning=DEP0205 next build",
     "start": "NODE_OPTIONS=--disable-warning=DEP0205 next start",
     "lint": "eslint",
-    "analyze": "tsx --env-file=.env.local scripts/analyze.ts"
+    "analyze": "tsx --env-file=.env.local scripts/analyze.ts",
+    "mcp": "tsx --env-file=.env.local mcp/http.mts",
+    "mcp:stdio": "tsx mcp/stdio.mts",
+    "mcp:tunnel": "cloudflared tunnel --url http://127.0.0.1:3399"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.71",
     "@anthropic-ai/sdk": "^0.112.1",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/qrcode": "^1.5.6",
     "ai": "^6.0.168",
