@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import type { Message } from "whatsapp-web.js";
 
 // Raw shape of a whatsapp-web.js message id after serialize(). Any WhatsApp
@@ -43,4 +44,31 @@ export function ensureSerializedId(msg: Message | null | undefined): string | nu
   const serialized = `${fromMe}_${remote}_${idHex}${participant ? `_${participant}` : ""}`;
   id._serialized = serialized; // patch so library internals that read it work
   return serialized;
+}
+
+/**
+ * A deterministic stand-in id for a message whose WhatsApp id could not be
+ * rebuilt at all.
+ *
+ * `id` is the PRIMARY KEY, but SQLite permits NULL in a non-INTEGER primary
+ * key — so during the July 2026 breakage 415 rows landed with `id IS NULL`.
+ * Such a row is invisible to every `WHERE id = ?`: it cannot be updated
+ * (relevance marking silently no-ops), cannot be deleted by id, and never
+ * dedupes on resync because ON CONFLICT(id) does not fire for NULL, so each
+ * resync appends another copy.
+ *
+ * Derived from the message's own content so the same message always yields the
+ * same id and ON CONFLICT can do its job.
+ */
+export function surrogateMessageId(parts: {
+  jid: string;
+  ts: number;
+  sender?: string | null;
+  body?: string | null;
+}): string {
+  const digest = createHash("sha1")
+    .update(`${parts.jid}\n${parts.ts}\n${parts.sender ?? ""}\n${parts.body ?? ""}`)
+    .digest("hex")
+    .slice(0, 16);
+  return `recovered_${parts.jid}_${parts.ts}_${digest}`;
 }
