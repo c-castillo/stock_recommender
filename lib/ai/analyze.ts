@@ -6,9 +6,11 @@
  *   Stage 3 (Sonnet) here              — narrative synthesis (streamed)
  *   Extract (Haiku)  extract-recs      — structured recommendation array
  *
- * The Sonnet call's stable prefix (frozen system prompt + wiki history) is sent
- * as a cached system message; volatile context (portfolio, live prices, memory,
- * ranked messages, media digests) goes in the user turn, after the breakpoint.
+ * The Sonnet call's stable prefix is the frozen playbook alone, sent as a cached
+ * system message. Everything else — the ADD ledger, SEC filings, ranked messages,
+ * media digests, portfolio, prior wiki verdicts, memory — goes in the user turn
+ * after the breakpoint. Prior verdicts in particular MUST stay out of the system
+ * prompt: there they read as rules rather than as the model's own past output.
  */
 
 import { createHash } from "crypto";
@@ -16,137 +18,35 @@ import { anthropic } from "@ai-sdk/anthropic";
 import { streamText } from "ai";
 import {
   listPortfolio,
-  getCashBalance,
   getAnalysisCache,
   setAnalysisCache,
+  listActiveDrCsAdds,
+  countSelectedGroups,
   type PortfolioPosition,
 } from "@/lib/whatsapp/db";
 import type { MessageForAnalysis } from "@/lib/whatsapp/db";
-import { fetchMa200Slopes } from "@/lib/ma200";
+import { SYSTEM_PROMPT } from "./playbook";
+import { buildPortfolioContext } from "./portfolio-context";
 import { loadAllWikis, updateWikiEntry } from "./wiki";
 import {
   loadAnalysisInputs,
   renderTextBlock,
   renderMediaDigestBlock,
+  renderDrCsAddLedger,
   type AnalysisStats,
 } from "./content-loader";
 import { ensureMediaDigests } from "./media-digest";
+import { sweepRelevance } from "./relevance";
 import {
   summarizeSignals,
   rankAndTruncate,
   renderSignalRollup,
 } from "./signals";
 import { recommendationsFromNarrative } from "./extract-recommendations";
+import { fetchRecentFilings, renderFilingsBlock } from "@/lib/market/filings";
 import { preAnalysisMemoryCheck, postAnalysisMemoryUpdate } from "./memory-agent";
 
 export type { AnalysisStats };
-
-// ── Current price fetcher ─────────────────────────────────────────────────────
-
-async function fetchCurrentPrices(
-  tickers: string[]
-): Promise<Record<string, number | null>> {
-  const prices: Record<string, number | null> = {};
-  for (const t of tickers) prices[t] = null;
-  if (tickers.length === 0) return prices;
-
-  // Yahoo's v7 /quote endpoint now requires a crumb+cookie and returns 401
-  // Unauthorized. The v8 /chart endpoint is still anonymous-accessible and
-  // exposes the live price at result[0].meta.regularMarketPrice. It's one
-  // request per symbol, so fan out in parallel.
-  await Promise.all(
-    tickers.map(async (t) => {
-      try {
-        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(t)}?interval=1d&range=1d`;
-        const res = await fetch(url, {
-          headers: { "User-Agent": "Mozilla/5.0" },
-          signal: AbortSignal.timeout(8000),
-        });
-        if (!res.ok) return;
-        const data = await res.json();
-        const meta = data?.chart?.result?.[0]?.meta;
-        const price = meta?.regularMarketPrice;
-        if (typeof price === "number") {
-          prices[(meta.symbol ?? t).toUpperCase()] = price;
-        }
-      } catch {
-        /* leave this ticker null on per-symbol failure */
-      }
-    })
-  );
-
-  return prices;
-}
-
-// ── Stable system prompt (frozen → cacheable prefix) ──────────────────────────
-
-const SYSTEM_PROMPT = `Expert financial analyst. US equities only (no options; inverse ETFs for shorts). Broker: Zesty.
-
-PHILOSOPHY: Trend follower (Gartman #19). Strong banks=stable markets. MM200/12mMA slope ↑→long bias, ↓→avoid/short. NH>NL=healthy→aggressive longs; opposite→shorts. Primary setup: Big Bases (Fibonacci main, Demark secondary).
-
-METHODOLOGY: Extract all tickers (text + media digests). Sentiment per mention: bullish/bearish/neutral ("skeletor"=bearish; watch irony/sarcasm). Credibility: technical/fundamental>opinions>rumors; prioritize Dr CS & PDF reports. Note consensus vs isolated views. A Stage-2 signal rollup and per-file media digests are provided as pre-analysis — weigh them but verify against the raw messages.
-
-★ DR CS ADD [HIGHEST PRIORITY]: [★ DR CS ADD] tags = Dr CS added ticker to watchlist (+TICKER). Strongest bullish signal; overrides all others. Confidence≥85 unless session content explicitly contradicts. Sort to top if multiple.
-
-OUTPUT (Markdown report — do NOT emit a JSON block; structured data is extracted separately):
-📊 Market summary
-🔍 Per-ticker: what was said, sentiment, argument strength, sources
-💡 Recommendations: for each, state action (BUY|SELL|HOLD), confidence 0-100, entry price, price target, stop loss, and rationale in prose.`;
-
-// ── Volatile portfolio context (after the cache breakpoint) ───────────────────
-
-async function buildPortfolioContext(): Promise<string> {
-  const positions = listPortfolio();
-  const cash = getCashBalance();
-  const portfolioTickers = positions.map((p) => p.ticker);
-
-  const [slopes, currentPrices] = await Promise.all([
-    positions.length > 0
-      ? fetchMa200Slopes(portfolioTickers)
-      : Promise.resolve({} as Record<string, number | null>),
-    portfolioTickers.length > 0
-      ? fetchCurrentPrices(portfolioTickers)
-      : Promise.resolve({} as Record<string, number | null>),
-  ]);
-
-  let section = "\n## Portfolio\n";
-
-  if (cash !== null) {
-    section += `Cash: $${cash.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n`;
-  }
-
-  if (positions.length > 0) {
-    section += "\nTicker|Shares|AvgCost|Price|MktVal|P&L|MM200\n";
-    section += "---|---|---|---|---|---|---\n";
-    for (const p of positions) {
-      const avgCost = p.avg_cost != null ? `$${p.avg_cost.toFixed(2)}` : "—";
-      const price = p.current_price != null ? `$${p.current_price.toFixed(2)}` : "—";
-      const mv = p.market_value != null ? `$${p.market_value.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : "—";
-      const pl = p.unrealized_pl != null
-        ? `$${p.unrealized_pl.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}(${p.unrealized_pl_pc != null ? p.unrealized_pl_pc.toFixed(1) + "%" : "—"})`
-        : "—";
-      const slope = slopes[p.ticker];
-      const slopeStr = slope != null ? `${slope >= 0 ? "↑+" : "↓"}${slope.toFixed(2)}%` : "—";
-      section += `${p.ticker}|${p.shares}|${avgCost}|${price}|${mv}|${pl}|${slopeStr}\n`;
-    }
-  } else {
-    section += "No positions.\n";
-  }
-
-  section += `\nRules: MM200↑=long, MM200↓=avoid. Existing: add/hold/exit. New buy: check cash. Size 5-20%. Stop: existing+profit→trailing% (e.g."15%"), new→price level (e.g."$810").\n`;
-
-  // Live prices for portfolio tickers — used as entryPrice for BUYs.
-  const priceEntries = Object.entries(currentPrices).filter(([, v]) => v !== null) as [string, number][];
-  if (priceEntries.length > 0) {
-    priceEntries.sort(([a], [b]) => a.localeCompare(b));
-    section +=
-      "\n## Live prices (Yahoo Finance) — use as entryPrice for BUY:\nTicker|Price\n---|---\n" +
-      priceEntries.map(([t, p]) => `${t}|$${p.toFixed(2)}`).join("\n") +
-      "\n";
-  }
-
-  return section;
-}
 
 // ── Result cache ──────────────────────────────────────────────────────────────
 
@@ -157,6 +57,9 @@ async function buildPortfolioContext(): Promise<string> {
  * report don't drift far from the market (see dynamic-pricing requirement).
  */
 const ANALYSIS_CACHE_TTL_MS = 90 * 60 * 1000; // 90 minutes
+
+/** Look-back for the SEC filings block — wide enough to catch a quarter's print. */
+const FILINGS_WINDOW_DAYS = 45;
 
 /**
  * Fingerprints the inputs that actually determine the report: the set of
@@ -175,6 +78,13 @@ function analysisInputsHash(
   for (const r of mediaRows) h.update(r.id + ":" + (r.media_digest ?? "") + "\n");
   h.update("|portfolio|");
   for (const p of positions) h.update(`${p.ticker}:${p.shares}:${p.avg_cost ?? ""}\n`);
+  // Fold the active ADD ledger in so recording/deactivating an ADD busts the
+  // cache and forces a fresh report instead of replaying a stale one.
+  h.update("|dradds|");
+  for (const a of listActiveDrCsAdds()) h.update(`${a.ticker}:${a.entryPrice ?? ""}\n`);
+  // The rules themselves are an input: editing the playbook must produce a new
+  // report, not a replay of one written under the old contract.
+  h.update("|playbook|" + SYSTEM_PROMPT);
   return h.digest("hex");
 }
 
@@ -189,6 +99,11 @@ interface AnalysisChunk {
 }
 
 export async function* streamAnalysis(): AsyncGenerator<AnalysisChunk> {
+  // Stage 0b: mark off-topic chatter in the mixed groups so it never reaches
+  // synthesis. Marks only — nothing is deleted — and failures leave messages
+  // unclassified, which reads as relevant.
+  await sweepRelevance();
+
   // Stage 1: ensure every chart/PDF in the window has a cached digest.
   // Idempotent — usually a no-op when digesting already happened at ingestion.
   await ensureMediaDigests(7);
@@ -196,10 +111,16 @@ export async function* streamAnalysis(): AsyncGenerator<AnalysisChunk> {
   const { textRows, mediaRows, stats } = loadAnalysisInputs();
 
   if (stats.textMessages === 0 && stats.images === 0 && stats.documents === 0) {
+    // Distinguish "nothing downloaded" from "nothing selected" — they look
+    // identical from here but need opposite fixes, and pointing at the sync
+    // when the real cause is an empty selection sends you in circles.
     yield {
       type: "error",
       error:
-        "No hay contenido para analizar. Descarga el historial de al menos un grupo primero.",
+        countSelectedGroups() === 0
+          ? "Ningún grupo está seleccionado para análisis. Elige al menos uno en el dashboard " +
+            "(los grupos nuevos llegan sin seleccionar a propósito)."
+          : "No hay contenido para analizar. Descarga el historial de al menos un grupo primero.",
     };
     return;
   }
@@ -227,25 +148,44 @@ export async function* streamAnalysis(): AsyncGenerator<AnalysisChunk> {
 
   const today = new Date().toISOString().slice(0, 10);
 
-  // Run memory check, portfolio context, and Stage-2 signal rollup in parallel.
-  const [memoryContext, portfolioContext, rollup] = await Promise.all([
+  // Company events the corpus cannot see. Bounded to what we actually hold or
+  // track, so this stays one cheap fan-out.
+  const eventTickers = [
+    ...positions.map((p) => p.ticker),
+    ...listActiveDrCsAdds().map((a) => a.ticker),
+  ];
+
+  // Run memory check, portfolio context, Stage-2 rollup and filings in parallel.
+  const [memoryContext, portfolioContext, rollup, filings] = await Promise.all([
     preAnalysisMemoryCheck(),
     buildPortfolioContext(),
     summarizeSignals(textRows),
+    fetchRecentFilings(eventTickers, FILINGS_WINDOW_DAYS),
   ]);
 
   // #5 — rank raw messages by Stage-2 conviction, keep Dr CS verbatim, truncate.
   const ranked = rankAndTruncate(textRows, rollup);
 
-  // Stable, cacheable prefix: frozen prompt + accumulated wiki history.
-  const stablePrefix = SYSTEM_PROMPT + "\n" + loadAllWikis();
+  // Stable, cacheable prefix: the frozen playbook ONLY.
+  //
+  // Prior wiki verdicts used to live here too. Sitting in the system prompt
+  // beside the rules, they read as standing instructions rather than as the
+  // model's own past output, and got cited as evidence for themselves. They now
+  // move into the user turn behind an explicit "NOT EVIDENCE" header. This
+  // costs no cache: every run appends a wiki entry, so the prefix busted daily.
+  const stablePrefix = SYSTEM_PROMPT;
 
-  // Volatile user turn (after the cache breakpoint).
+  // Volatile user turn (after the cache breakpoint). The persisted ADD ledger
+  // goes first so it's the most prominent signal in the turn; prior verdicts go
+  // last, after all the real evidence.
   const userContent =
+    renderDrCsAddLedger() +
+    renderFilingsBlock(filings, FILINGS_WINDOW_DAYS) +
     renderSignalRollup(rollup) +
     renderTextBlock(ranked) +
     renderMediaDigestBlock(mediaRows) +
     portfolioContext +
+    loadAllWikis() +
     memoryContext +
     "\n---\n" +
     `Analiza todo el contenido anterior (${ranked.length} mensajes priorizados, ${stats.images} imágenes, ${stats.documents} documentos PDF de ${stats.groups.length} grupo(s) — últimos 7 días) ` +
