@@ -1,6 +1,16 @@
 /**
  * Per-ticker wiki: persistent markdown files that accumulate analysis history.
  * Each run appends a dated entry so future runs have full context.
+ *
+ * IMPORTANT: what this module loads is the model's OWN prior output, not
+ * evidence. Injecting it unlabelled next to the corpus caused a self-citation
+ * loop — a verdict would cite the previous session as its source, ratchet its
+ * confidence up, and survive indefinitely with zero corpus support (CIEN ran
+ * SELL 80→88% for 21 sessions that way). Three guards below:
+ *   1. `WIKI_MAX_AGE_DAYS` — stale verdicts stop being injected at all.
+ *   2. `Mentions`/`Sources` are parsed and rendered, so an unsourced verdict
+ *      is visible as unsourced instead of arriving bare.
+ *   3. Sources that name a prior report are flagged ⚠ self-cited.
  */
 
 import fs from "fs";
@@ -21,6 +31,21 @@ interface WikiRecommendation {
 
 const WIKI_DIR = path.join(process.cwd(), "wiki");
 
+/**
+ * A verdict older than this is not injected. The analysis window is 7 days of
+ * messages; a recommendation last touched months ago is an opinion with no
+ * living evidence behind it, and carrying it forward is how April SELLs ended
+ * up in September prompts.
+ */
+const WIKI_MAX_AGE_DAYS = 45;
+
+/** Reasoning excerpt length in the injected note. */
+const REASONING_EXCERPT = 200;
+
+/** Sources that point at the pipeline's own past output rather than the corpus. */
+const SELF_CITED_RE =
+  /prior (analysis|session|recommendation|sell|buy|hold|signal)|previous session|investment report|analysis history|session memory|prior report/i;
+
 function ensureWikiDir() {
   if (!fs.existsSync(WIKI_DIR)) {
     fs.mkdirSync(WIKI_DIR, { recursive: true });
@@ -29,6 +54,12 @@ function ensureWikiDir() {
 
 function tickerPath(ticker: string): string {
   return path.join(WIKI_DIR, `${ticker.toUpperCase()}.md`);
+}
+
+function daysBetween(isoDate: string, now: Date): number {
+  const then = Date.parse(isoDate + "T00:00:00Z");
+  if (Number.isNaN(then)) return Number.POSITIVE_INFINITY;
+  return Math.floor((now.getTime() - then) / 86_400_000);
 }
 
 // ── Read ──────────────────────────────────────────────────────────────────────
@@ -41,6 +72,8 @@ interface WikiEntry {
   target: string;
   stop: string;
   reasoning: string;
+  mentions: number | null;
+  sources: string;
 }
 
 function parseWikiFile(content: string): { ticker: string; company: string; entries: WikiEntry[] } {
@@ -60,6 +93,8 @@ function parseWikiFile(content: string): { ticker: string; company: string; entr
 
     const date = dateMatch[1];
     let action = "?", confidence = 0, entry = "—", target = "—", stop = "—", reasoning = "";
+    let mentions: number | null = null;
+    let sources = "";
 
     for (const line of sLines.slice(1)) {
       const actionM = line.match(/^\*\*Action:\*\* (\w+) \(confidence: (\d+)%\)/);
@@ -72,24 +107,37 @@ function parseWikiFile(content: string): { ticker: string; company: string; entr
       const stopM = line.match(/\*\*Stop:\*\* ([^\s|]+)/);
       if (stopM) stop = stopM[1];
 
+      // Mentions/Sources are the provenance of the verdict. They used to be
+      // written to disk and then dropped on read, which is precisely what let
+      // unsourced verdicts pass as evidence.
+      const mentionsM = line.match(/\*\*Mentions:\*\* (\d+)/);
+      if (mentionsM) mentions = parseInt(mentionsM[1], 10);
+      const sourcesM = line.match(/\*\*Sources:\*\* (.*)$/);
+      if (sourcesM) sources = sourcesM[1].trim();
+
       const reasonM = line.match(/^\*\*Reasoning:\*\* (.+)$/);
-      if (reasonM) reasoning = reasonM[1].slice(0, 120);
+      if (reasonM) reasoning = reasonM[1].slice(0, REASONING_EXCERPT);
     }
 
-    entries.push({ date, action, confidence, entry, target, stop, reasoning });
+    entries.push({ date, action, confidence, entry, target, stop, reasoning, mentions, sources });
   }
 
-  // Newest first
-  entries.sort((a, b) => b.date.localeCompare(a.date));
-  return { ticker, company, entries };
+  // Newest first. Same-date entries tie-break on file position (later in the
+  // file = written later), so a same-day re-analysis supersedes the earlier one
+  // instead of losing to it on a stable sort.
+  const ordered = entries
+    .map((entry, idx) => ({ entry, idx }))
+    .sort((a, b) => b.entry.date.localeCompare(a.entry.date) || b.idx - a.idx)
+    .map((x) => x.entry);
+  return { ticker, company, entries: ordered };
 }
 
 /**
- * Returns a compact summary of all wiki files for prompt injection.
- * Shows the last 3 entries per ticker as a table + most recent reasoning.
- * Much more token-efficient than dumping full markdown.
+ * Returns a compact summary of recent wiki verdicts for prompt injection —
+ * the latest entry per ticker, dropping anything older than WIKI_MAX_AGE_DAYS,
+ * with provenance attached and self-citation flagged.
  */
-export function loadAllWikis(): string {
+export function loadAllWikis(now: Date = new Date()): string {
   ensureWikiDir();
   const files = fs
     .readdirSync(WIKI_DIR)
@@ -100,6 +148,7 @@ export function loadAllWikis(): string {
 
   const rows: string[] = [];
   const notes: string[] = [];
+  let dropped = 0;
 
   for (const file of files) {
     try {
@@ -108,13 +157,25 @@ export function loadAllWikis(): string {
       const { ticker, entries } = parseWikiFile(content);
       if (entries.length === 0) continue;
 
-      for (const e of entries.slice(0, 1)) {
-        rows.push(`${ticker}|${e.date}|${e.action}|${e.confidence}%|${e.entry}|${e.target}|${e.stop}`);
-      }
-      // Most recent reasoning as a one-liner note
       const latest = entries[0];
+      const age = daysBetween(latest.date, now);
+      if (age > WIKI_MAX_AGE_DAYS) { dropped++; continue; }
+
+      const selfCited = SELF_CITED_RE.test(latest.sources);
+      const provenance =
+        (latest.mentions != null ? `${latest.mentions} mention(s)` : "unknown") +
+        (selfCited ? " ⚠ self-cited" : "");
+
+      rows.push(
+        `${ticker}|${latest.date}|${age}d|${latest.action}|${latest.confidence}%|` +
+          `${latest.entry}|${latest.target}|${latest.stop}|${provenance}`
+      );
+
       if (latest.reasoning) {
-        notes.push(`${ticker} (${latest.date}): ${latest.reasoning}${latest.reasoning.length >= 120 ? "…" : ""}`);
+        notes.push(
+          `${ticker} (${latest.date}): ${latest.reasoning}` +
+            `${latest.reasoning.length >= REASONING_EXCERPT ? "…" : ""}`
+        );
       }
     } catch {
       // skip unreadable files
@@ -124,14 +185,26 @@ export function loadAllWikis(): string {
   if (rows.length === 0) return "";
 
   const table = [
-    "## Prior analysis history (last run per ticker)",
-    "Ticker|Date|Action|Conf|Entry|Target|Stop",
-    "---|---|---|---|---|---|---",
+    "## Your own prior verdicts — NOT EVIDENCE",
+    "",
+    "These rows are output this pipeline generated on earlier runs. They are a record of what you",
+    "previously concluded, not corroboration of it. Rules:",
+    "- A prior verdict may NOT be cited as a source. If nothing in this session's corpus supports it,",
+    "  it has no support — say so and move toward HOLD rather than restating it.",
+    "- Do NOT raise confidence on a ticker that has no new evidence this session. Absent new evidence,",
+    "  confidence decays.",
+    "- `Provenance` shows how many corpus mentions backed the verdict when it was written. `0 mention(s)`",
+    "  or `⚠ self-cited` means it was never independently sourced.",
+    `- Verdicts older than ${WIKI_MAX_AGE_DAYS} days are omitted entirely${dropped > 0 ? ` (${dropped} omitted this run)` : ""}.`,
+    "",
+    "Ticker|Date|Age|Action|Conf|Entry|Target|Stop|Provenance",
+    "---|---|---|---|---|---|---|---|---",
     ...rows,
   ].join("\n");
 
   const noteBlock = notes.length
-    ? "\n### Latest reasoning\n" + notes.map((n) => `- ${n}`).join("\n")
+    ? "\n### Latest reasoning (also prior output, not evidence)\n" +
+      notes.map((n) => `- ${n}`).join("\n")
     : "";
 
   return table + noteBlock + "\n";
