@@ -16,7 +16,11 @@ interface WhatsAppStatus {
   totalMessages: number;
 }
 
-type GroupSyncStatus = "pending" | "requesting_history" | "waiting" | "done" | "error";
+// Must stay in sync with GroupSyncStatus in lib/whatsapp/sync-jobs.ts. It had
+// drifted: the backend emits "fetching"/"processing", which this union did not
+// list, so the label lookup returned undefined and a group that was actively
+// downloading still rendered as "En cola".
+type GroupSyncStatus = "pending" | "fetching" | "processing" | "done" | "error";
 
 interface GroupProgress {
   jid: string;
@@ -35,6 +39,10 @@ interface SyncJob {
   completedAt?: number;
   groups: GroupProgress[];
   backfill?: boolean;
+  /** Set when the job died as a whole (e.g. no live client), rather than in one
+   *  group. Without rendering this, such a failure looked identical to a job
+   *  that had simply not started: every group frozen at "En cola". */
+  error?: string;
 }
 
 type AnalysisState = "idle" | "running" | "done" | "error";
@@ -77,8 +85,8 @@ const STATUS_DOT: Record<ConnectionStatus, string> = {
   qr_ready: "bg-[#F5C518] animate-pulse", connected: "bg-[#2ECC71]",
 };
 const GROUP_SYNC_LABEL: Record<GroupSyncStatus, string> = {
-  pending: "En cola", requesting_history: "Descargando…",
-  waiting: "Esperando entrega…", done: "Completado", error: "Error",
+  pending: "En cola", fetching: "Descargando…",
+  processing: "Guardando…", done: "Completado", error: "Error",
 };
 
 function Ma200Badge({ slope }: { slope: number | null | undefined }) {
@@ -159,12 +167,19 @@ export default function Dashboard() {
     if (res?.ok) setWaStatus(await res.json());
   }, []);
 
+  // Poll fast only while the connection is in flight — that is the window where
+  // the UI has something to show (QR code, state transitions). Once connected,
+  // nothing changes between polls except the message count, so a 2s round trip
+  // per tick was pure overhead on both the server and React.
+  const waPollMs =
+    waStatus.status === "connected" || waStatus.status === "disconnected" ? 10000 : 1500;
+
   useEffect(() => {
     async function run() { await pollStatus(); }
     run();
-    const id = setInterval(pollStatus, 2000);
+    const id = setInterval(pollStatus, waPollMs);
     return () => clearInterval(id);
-  }, [pollStatus]);
+  }, [pollStatus, waPollMs]);
 
   const loadSavedRecs = useCallback(async () => {
     const res = await fetch("/api/recommendations").catch(() => null);
@@ -275,16 +290,24 @@ export default function Dashboard() {
 
   // ── Actions ────────────────────────────────────────────────────────────────
 
-  async function handleConnect() { await fetch("/api/whatsapp/connect", { method: "POST" }); }
+  // Each of these changes the connection state, so refresh immediately rather
+  // than waiting out the poll interval — that is what makes the button feel
+  // responsive, and it is why the idle interval can afford to be slow.
+  async function handleConnect() {
+    await fetch("/api/whatsapp/connect", { method: "POST" });
+    await pollStatus();
+  }
   async function handleDisconnect() {
     await fetch("/api/whatsapp/disconnect", { method: "POST" });
     setSyncSelectedJids(new Set()); setActiveJob(null);
     setAnalysisText(""); setAnalysisState("idle"); setAnalysisStats(null);
+    await pollStatus();
   }
   async function handleReset() {
     await fetch("/api/whatsapp/reset", { method: "POST" });
     setSyncSelectedJids(new Set()); setActiveJob(null);
     setAnalysisText(""); setAnalysisState("idle"); setAnalysisStats(null);
+    await pollStatus();
   }
 
   function toggleSyncGroup(jid: string) {
@@ -544,6 +567,12 @@ export default function Dashboard() {
                   <div className="flex items-center gap-2 py-2">
                     <span className="w-3.5 h-3.5 border-2 border-[#EDE8D5] border-t-[#1a1a1a] rounded-full animate-spin flex-shrink-0" />
                     <p className="text-xs text-[#666] font-semibold">{activeJob.backfill ? "Backfill 14d" : "Descargando"} — {elapsed(activeJob.startedAt)} transcurridos</p>
+                  </div>
+                )}
+                {activeJob.status === "error" && activeJob.error && (
+                  <div className="rounded-xl px-4 py-3 border-2 bg-[#FF4D3D]/10 border-[#FF4D3D]">
+                    <p className="text-xs font-extrabold text-[#1a1a1a]">La sincronización falló</p>
+                    <pre className="text-[10px] text-[#FF4D3D] mt-1 font-mono whitespace-pre-wrap break-words max-h-32 overflow-auto">{activeJob.error}</pre>
                   </div>
                 )}
                 {activeJob.status === "done" && (
@@ -995,8 +1024,8 @@ function PortfolioChart({ history }: { history: PortfolioSnapshot[] }) {
 function GroupStatusBadge({ status }: { status: GroupSyncStatus }) {
   const styles: Record<GroupSyncStatus, string> = {
     pending: "bg-[#EDE8D5] text-[#999] border-2 border-[#1a1a1a]",
-    requesting_history: "bg-[#F5C518] text-[#1a1a1a] border-2 border-[#1a1a1a]",
-    waiting: "bg-[#F5C518] text-[#1a1a1a] border-2 border-[#1a1a1a]",
+    fetching: "bg-[#F5C518] text-[#1a1a1a] border-2 border-[#1a1a1a]",
+    processing: "bg-[#F5C518] text-[#1a1a1a] border-2 border-[#1a1a1a]",
     done: "bg-[#1a1a1a] text-white border-2 border-[#1a1a1a]",
     error: "bg-[#FF4D3D] text-white border-2 border-[#1a1a1a]",
   };
