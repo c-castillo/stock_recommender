@@ -2,7 +2,19 @@
   "mcpServers": {
     "tradingview": {
       "command": "/opt/homebrew/bin/uvx",
-      "args": ["--from", "tradingview-mcp-server", "tradingview-mcp"]
+      "args": [
+        "--from",
+        "tradingview-mcp-server",
+        "tradingview-mcp"
+      ]
+    },
+    "stock-recommender": {
+      "command": "/Users/cristobalcastillo/stock_recommender/node_modules/.bin/tsx",
+      "args": [
+        "--tsconfig",
+        "/Users/cristobalcastillo/stock_recommender/tsconfig.json",
+        "/Users/cristobalcastillo/stock_recommender/mcp/stdio.mts"
+      ]
     }
   }
 }
