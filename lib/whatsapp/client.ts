@@ -169,9 +169,43 @@ async function startClient(): Promise<void> {
 
   wClient.on("ready", async () => {
     if (!isCurrent()) return;
+    clearInterval(readyWatchdog);
     store.state = { status: "connected", qr: null, error: null };
     await refreshGroups();
   });
+
+  // whatsapp-web.js emits `ready` from inside its onAppStateHasSyncedEvent
+  // binding, which fires once. That handler can stall partway through
+  // attachEventListeners() — WhatsApp is logged in and fully synced, yet
+  // `ready` never comes and the UI sits at "connecting" forever. Watch for
+  // that: once the page reports hasSynced, finish attaching the listeners and
+  // re-fire the binding, whose second run skips straight to emitting `ready`.
+  const readyWatchdog = setInterval(async () => {
+    if (!isCurrent() || store.state.status !== "connecting") {
+      clearInterval(readyWatchdog);
+      return;
+    }
+    const page = wClient.pupPage;
+    if (!page || !wClient.info) return; // login not past the inject step yet
+    try {
+      const synced = await page.evaluate(() => {
+        const w = window as unknown as WaSyncWindow;
+        return !!w.WWebJS && !!w.require("WAWebSocketModel").Socket?.hasSynced;
+      });
+      if (!synced || !isCurrent() || store.state.status !== "connecting") return;
+      console.warn("[whatsapp] synced but no `ready` — re-firing it");
+      await withTimeout(
+        (wClient as unknown as { attachEventListeners(): Promise<void> }).attachEventListeners(),
+        15_000,
+      );
+      await withTimeout(
+        page.evaluate(() => (window as unknown as WaSyncWindow).onAppStateHasSyncedEvent?.()),
+        15_000,
+      );
+    } catch (err) {
+      console.error("[whatsapp] ready watchdog:", err);
+    }
+  }, 10_000);
 
   wClient.on("auth_failure", (msg) => {
     teardown({ status: "disconnected", qr: null, error: `Auth failure: ${msg}` });
@@ -204,10 +238,12 @@ async function startClient(): Promise<void> {
   });
 }
 
-/** Disconnect and destroy the browser. Does not wipe the session. */
-export function disconnect(): void {
+/** Disconnect and destroy the browser. Does not wipe the session.
+ *  Awaits the browser's exit: a connect() right after would otherwise find the
+ *  session dir still locked ("The browser is already running for …"). */
+export async function disconnect(): Promise<void> {
   try {
-    store.wClient?.destroy();
+    await store.wClient?.destroy();
   } catch {
     /* ignore */
   }
@@ -301,6 +337,21 @@ export async function ensureGroups(): Promise<void> {
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
+
+interface WaSyncWindow {
+  WWebJS?: unknown;
+  require(mod: "WAWebSocketModel"): { Socket?: { hasSynced?: boolean } };
+  onAppStateHasSyncedEvent?(): Promise<void>;
+}
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`timed out after ${ms} ms`)), ms),
+    ),
+  ]);
+}
 
 async function processMessage(msg: Message) {
   const jid = msg.from;
