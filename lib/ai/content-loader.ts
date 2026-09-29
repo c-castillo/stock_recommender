@@ -11,8 +11,11 @@ import {
   getContentForAnalysis,
   isDrCsAdd,
   listActiveDrCsAdds,
+  type DrCsAddEntry,
   type MessageForAnalysis,
 } from "@/lib/whatsapp/db";
+import { fetchCurrentPrices } from "@/lib/market/quotes";
+import { fetchMa200Slopes } from "@/lib/ma200";
 
 // ── Limits ────────────────────────────────────────────────────────────────────
 
@@ -129,6 +132,17 @@ function clampStudy(v: string): string {
   return t.length <= STUDY_MAX_CHARS ? t : t.slice(0, STUDY_MAX_CHARS - 1) + "…";
 }
 
+const TRANSCRIPT_MAX_CHARS = 5000;
+
+function clampTranscript(v: string): string {
+  const t = v.trim();
+  return t.length <= TRANSCRIPT_MAX_CHARS ? t : t.slice(0, TRANSCRIPT_MAX_CHARS - 1) + "…";
+}
+
+function indent(v: string): string {
+  return v.split("\n").map((l) => `      ${l}`).join("\n");
+}
+
 /** Render the cached media digests (Stage 1 output) as a compact text section. */
 export function renderMediaDigestBlock(rows: MessageForAnalysis[]): string {
   if (rows.length === 0) return "";
@@ -145,6 +159,7 @@ export function renderMediaDigestBlock(rows: MessageForAnalysis[]): string {
       summary?: string;
       demark?: string;
       fibonacci?: string;
+      transcript?: string;
     };
     try {
       d = JSON.parse(r.media_digest!);
@@ -166,6 +181,12 @@ export function renderMediaDigestBlock(rows: MessageForAnalysis[]): string {
     if (d.fibonacci && d.fibonacci !== "—") {
       text += `    ◈ Fib: ${clampStudy(d.fibonacci)}\n`;
       fibSeen++;
+    }
+    // Verbatim text of a text-heavy image (tweet, news, broker table): the
+    // summary above compresses it to a sentence, so the words themselves
+    // follow, indented under their entry.
+    if (d.transcript) {
+      text += `    ✎ Texto (transcripción literal):\n${indent(clampTranscript(d.transcript))}\n`;
     }
   }
   if (fibSeen > 0) {
@@ -190,36 +211,98 @@ export function renderMediaDigestBlock(rows: MessageForAnalysis[]): string {
   return text + "\n";
 }
 
+// ── Dr CS ADD ledger ────────────────────────────────────────────────────────
+
+/** An ADD older than this without a refresh from Dr CS is aging. */
+const ADD_AGING_DAYS = 90;
+/** Live price this many times above/below the ledger entry = split or bad data. */
+const ENTRY_SANITY_RATIO = 3;
+
+export type AddStatus = "ACTIVE" | "AGING" | "EXPIRED" | "INVALIDATED";
+
+export interface LedgerRow extends DrCsAddEntry {
+  ageDays: number | null;
+  price: number | null;
+  slope: number | null;
+  status: AddStatus;
+  /** Set when the stored entry price can't be right against the live price. */
+  entryWarning: string | null;
+}
+
+/** First number in a free-text entry: "~$360 (359.53 on …)" → 360. */
+function parseEntry(entry: string | null): number | null {
+  const m = entry?.replace(/,/g, "").match(/\d+(?:\.\d+)?/);
+  return m ? Number(m[0]) : null;
+}
+
+/**
+ * The ledger with each ADD's lifecycle status, judged against live data:
+ * INVALIDATED — live price below the thesis's stated invalidation level;
+ * EXPIRED     — aging AND below a falling MA200 (back under the normal rules);
+ * AGING       — older than 90 days, override kept but confidence capped;
+ * ACTIVE      — everything else.
+ * A missing quote never demotes an ADD: unknown data keeps the older status.
+ */
+export async function loadDrCsAddLedger(): Promise<LedgerRow[]> {
+  const adds = listActiveDrCsAdds();
+  if (adds.length === 0) return [];
+  const tickers = adds.map((a) => a.ticker);
+  const [prices, slopes] = await Promise.all([fetchCurrentPrices(tickers), fetchMa200Slopes(tickers)]);
+  const now = Date.now();
+  return adds.map((a) => {
+    const added = a.addedOn ? Date.parse(a.addedOn + "T00:00:00Z") : NaN;
+    const ageDays = Number.isNaN(added) ? null : Math.floor((now - added) / 86_400_000);
+    const price = prices[a.ticker] ?? null;
+    const slope = slopes[a.ticker] ?? null;
+    const aging = ageDays != null && ageDays > ADD_AGING_DAYS;
+    const status: AddStatus =
+      a.invalidation != null && price != null && price < a.invalidation
+        ? "INVALIDATED"
+        : aging && slope != null && slope < 0
+          ? "EXPIRED"
+          : aging
+            ? "AGING"
+            : "ACTIVE";
+    const entry = parseEntry(a.entryPrice);
+    const ratio = entry && price != null ? price / entry : null;
+    const entryWarning =
+      ratio != null && (ratio > ENTRY_SANITY_RATIO || ratio < 1 / ENTRY_SANITY_RATIO)
+        ? `⚠ entry ${entry} vs live ${price!.toFixed(2)} — split or bad data, verify`
+        : null;
+    return { ...a, ageDays, price, slope, status, entryWarning };
+  });
+}
+
 /**
  * Render the persistent Dr CS ADD ledger as a high-priority block. Dr CS's adds
  * don't always arrive as "+TICKER" text, so without this the synthesis loses
- * them each run and re-derives a SELL from MM200/loss rules. These rows carry
- * the SYSTEM_PROMPT's [★ DR CS ADD] override until explicitly deactivated.
+ * them each run and re-derives a SELL from MM200/loss rules. Each row carries
+ * its lifecycle status so the override is only applied where it still holds.
  */
-export function renderDrCsAddLedger(): string {
-  const adds = listActiveDrCsAdds();
-  if (adds.length === 0) return "";
-  const today = Date.now();
-  const rows = adds
-    .map((a) => {
-      const added = a.addedOn ? Date.parse(a.addedOn + "T00:00:00Z") : NaN;
-      const age = Number.isNaN(added)
-        ? "—"
-        : `${Math.floor((today - added) / 86_400_000)}d`;
-      return `${a.ticker}|${a.entryPrice ?? "—"}|${a.addedOn ?? "—"}|${age}|${a.note ?? ""}`;
+export function renderDrCsAddLedger(rows: LedgerRow[]): string {
+  if (rows.length === 0) return "";
+  const body = rows
+    .map((r) => {
+      const slope = r.slope != null ? `${r.slope >= 0 ? "↑+" : "↓"}${r.slope.toFixed(2)}%` : "—";
+      const note = [r.entryWarning, r.note].filter(Boolean).join(" · ");
+      return (
+        `${r.ticker}|${r.status}|${r.entryPrice ?? "—"}|${r.price != null ? `$${r.price.toFixed(2)}` : "—"}|` +
+        `${slope}|${r.invalidation ?? "—"}|${r.addedOn ?? "—"}|${r.ageDays != null ? `${r.ageDays}d` : "—"}|${note}`
+      );
     })
     .join("\n");
   return (
-    "\n## ★ Active Dr CS ADDs — PERSISTED LEDGER [HIGHEST PRIORITY]\n" +
-    "Each ticker below was added by Dr CS and REMAINS ACTIVE until Dr CS issues a SELL. " +
-    "Treat every row as a live [★ DR CS ADD]: strongest bullish signal, action BUY or HOLD (NEVER SELL), confidence ≥85 — " +
-    "UNLESS this session's content contains an explicit Dr CS SELL/exit for that specific ticker. " +
-    "A negative MM200, an unrealized loss, or a factor/basket unwind does NOT override an active ADD.\n" +
-    "Age is how long the ADD has gone without a refresh from Dr CS. An ADD over 90 days old still " +
-    "blocks a SELL, but do not assert \u226585 confidence on it — call it aging and lower confidence. " +
-    "Entry levels here are the price AT THE ADD, not today's: quote entries from the live price block.\n" +
-    "Ticker|Entry|Added|Age|Note\n---|---|---|---|---\n" +
-    rows +
+    "\n## ★ Dr CS ADD ledger — PERSISTED [HIGHEST PRIORITY]\n" +
+    "Each row was added by Dr CS. Apply the playbook's ADD LIFECYCLE by the Status column:\n" +
+    "- ACTIVE: live [★ DR CS ADD] — BUY or HOLD, never a full SELL; a concentration trim is allowed.\n" +
+    "- AGING (>90d, no refresh): still blocks a full SELL, confidence capped at 70.\n" +
+    "- EXPIRED (aging AND MM200 falling): no override — ordinary rules, including SELL.\n" +
+    "- INVALIDATED (live below the Invalidation level): thesis broken — SELL is allowed; " +
+    "if the level was stated as a weekly close, say whether the break has held on a closing basis.\n" +
+    "Entry is the price AT THE ADD, not today's — quote entries from Live. A ⚠ entry flag means the " +
+    "stored entry cannot be right (split or bad data): don't compute P&L from it.\n" +
+    "Ticker|Status|Entry|Live|MM200|Invalidation|Added|Age|Note\n---|---|---|---|---|---|---|---|---\n" +
+    body +
     "\n"
   );
 }

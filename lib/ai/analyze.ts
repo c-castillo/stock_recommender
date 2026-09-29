@@ -2,11 +2,11 @@
  * Streams an investment analysis from a staged, cost-tiered pipeline:
  *
  *   Stage 1 (Haiku)  media-digest.ts   — chart/PDF → cached text digest (once)
- *   Stage 2 (Haiku)  signals.ts        — per-ticker rollup + message ranking
- *   Stage 3 (Sonnet) here              — narrative synthesis (streamed)
+ *   Stage 2 (Sonnet) signals.ts        — per-ticker rollup + message ranking
+ *   Stage 3 (Opus) here                — narrative synthesis (streamed)
  *   Extract (Haiku)  extract-recs      — structured recommendation array
  *
- * The Sonnet call's stable prefix is the frozen playbook alone, sent as a cached
+ * The Opus call's stable prefix is the frozen playbook alone, sent as a cached
  * system message. Everything else — the ADD ledger, SEC filings, ranked messages,
  * media digests, portfolio, prior wiki verdicts, memory — goes in the user turn
  * after the breakpoint. Prior verdicts in particular MUST stay out of the system
@@ -27,12 +27,14 @@ import {
 import type { MessageForAnalysis } from "@/lib/whatsapp/db";
 import { SYSTEM_PROMPT } from "./playbook";
 import { buildPortfolioContext } from "./portfolio-context";
+import { classifyTickers, renderSectorLookup } from "@/lib/market/classify";
 import { loadAllWikis, updateWikiEntry } from "./wiki";
 import {
   loadAnalysisInputs,
   renderTextBlock,
   renderMediaDigestBlock,
   renderDrCsAddLedger,
+  loadDrCsAddLedger,
   type AnalysisStats,
 } from "./content-loader";
 import { ensureMediaDigests } from "./media-digest";
@@ -81,7 +83,7 @@ function analysisInputsHash(
   // Fold the active ADD ledger in so recording/deactivating an ADD busts the
   // cache and forces a fresh report instead of replaying a stale one.
   h.update("|dradds|");
-  for (const a of listActiveDrCsAdds()) h.update(`${a.ticker}:${a.entryPrice ?? ""}\n`);
+  for (const a of listActiveDrCsAdds()) h.update(`${a.ticker}:${a.entryPrice ?? ""}:${a.invalidation ?? ""}\n`);
   // The rules themselves are an input: editing the playbook must produce a new
   // report, not a replay of one written under the old contract.
   h.update("|playbook|" + SYSTEM_PROMPT);
@@ -156,12 +158,19 @@ export async function* streamAnalysis(): AsyncGenerator<AnalysisChunk> {
   ];
 
   // Run memory check, portfolio context, Stage-2 rollup and filings in parallel.
-  const [memoryContext, portfolioContext, rollup, filings] = await Promise.all([
+  const [memoryContext, portfolioContext, rollup, filings, ledger] = await Promise.all([
     preAnalysisMemoryCheck(),
     buildPortfolioContext(),
     summarizeSignals(textRows),
     fetchRecentFilings(eventTickers, FILINGS_WINDOW_DAYS),
+    loadDrCsAddLedger(),
   ]);
+
+  // Real sector profiles for every discussed ticker outside the curated map,
+  // so the report stops guessing sectors from ticker names.
+  const sectorLookup = renderSectorLookup(
+    await classifyTickers(rollup.tickers.map((t) => t.ticker))
+  );
 
   // #5 — rank raw messages by Stage-2 conviction, keep Dr CS verbatim, truncate.
   const ranked = rankAndTruncate(textRows, rollup);
@@ -179,9 +188,10 @@ export async function* streamAnalysis(): AsyncGenerator<AnalysisChunk> {
   // goes first so it's the most prominent signal in the turn; prior verdicts go
   // last, after all the real evidence.
   const userContent =
-    renderDrCsAddLedger() +
+    renderDrCsAddLedger(ledger) +
     renderFilingsBlock(filings, FILINGS_WINDOW_DAYS) +
     renderSignalRollup(rollup) +
+    sectorLookup +
     renderTextBlock(ranked) +
     renderMediaDigestBlock(mediaRows) +
     portfolioContext +
@@ -191,9 +201,9 @@ export async function* streamAnalysis(): AsyncGenerator<AnalysisChunk> {
     `Analiza todo el contenido anterior (${ranked.length} mensajes priorizados, ${stats.images} imágenes, ${stats.documents} documentos PDF de ${stats.groups.length} grupo(s) — últimos 7 días) ` +
     "y genera el informe de inversión completo en Markdown.";
 
-  // Stage 3: synthesis on Sonnet. Stable prefix cached; volatile turn after it.
+  // Stage 3: synthesis on Opus. Stable prefix cached; volatile turn after it.
   const result = streamText({
-    model: anthropic("claude-sonnet-4-6"),
+    model: anthropic("claude-opus-5-5"),
     maxOutputTokens: 32000,
     system: [
       {

@@ -11,7 +11,7 @@ export async function GET() {
   return Response.json({ adds: listActiveDrCsAdds() });
 }
 
-// POST { ticker, entryPrice?, note?, addedOn? } — record/re-activate an ADD.
+// POST { ticker, entryPrice?, note?, addedOn?, invalidation? } — record/re-activate an ADD.
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
   if (!body?.ticker || typeof body.ticker !== "string") {
@@ -22,6 +22,7 @@ export async function POST(request: Request) {
     entryPrice: body.entryPrice ?? null,
     note: body.note ?? null,
     addedOn: body.addedOn ?? null,
+    invalidation: typeof body.invalidation === "number" ? body.invalidation : null,
   });
   return Response.json({ adds: listActiveDrCsAdds() });
 }

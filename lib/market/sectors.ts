@@ -145,6 +145,8 @@ const TICKER_SECTOR: Record<string, SectorId> = {
   // optical & networking
   CIEN: "optical", GLW: "optical", LITE: "optical", COHR: "optical", AAOI: "optical",
   FN: "optical", CRDO: "optical", ANET: "optical", CSCO: "optical", NOK: "optical",
+  // optical test & measurement — the KEYS/VIAV leg of Dr CS's optical thesis
+  KEYS: "optical", VIAV: "optical",
   // AI infra / neoclouds
   NBIS: "ai-infra", CRWV: "ai-infra", WYFI: "ai-infra", IREN: "ai-infra", CIFR: "ai-infra",
   APLD: "ai-infra", CORZ: "ai-infra", SMCI: "ai-infra", DELL: "ai-infra", ORCL: "ai-infra",
@@ -159,7 +161,7 @@ const TICKER_SECTOR: Record<string, SectorId> = {
   // financials
   ROOT: "financials", JPM: "financials", GS: "financials", MS: "financials", XLF: "financials", KRE: "financials",
   // energy
-  XOM: "energy", CVX: "energy", XLE: "energy", BWET: "energy",
+  XOM: "energy", CVX: "energy", XLE: "energy",
   // korea
   KORU: "korea", EWY: "korea",
   // broad

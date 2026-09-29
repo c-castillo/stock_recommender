@@ -15,6 +15,7 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import fs from "fs";
 
 import {
   listGroups,
@@ -26,6 +27,7 @@ import {
   getNewestMessage,
   getRecentMessages,
   getContentForAnalysis,
+  setMediaDigest,
   listPortfolio,
   getCashBalance,
   getPortfolioGoal,
@@ -41,9 +43,13 @@ import {
   renderTextBlock,
   renderMediaDigestBlock,
   renderDrCsAddLedger,
+  loadDrCsAddLedger,
 } from "@/lib/ai/content-loader";
 import { buildPortfolioContext } from "@/lib/ai/portfolio-context";
+import { classifyTickers, renderSectorLookup } from "@/lib/market/classify";
+import { SECTORS } from "@/lib/market/sectors";
 import { SYSTEM_PROMPT } from "@/lib/ai/playbook";
+import { digestSchema, PROMPT as DIGEST_PROMPT, STUDIES_PROMPT, TRANSCRIBE_PROMPT } from "@/lib/ai/media-prompts";
 import { loadAllWikis } from "@/lib/ai/wiki";
 import { readAllMemories } from "@/lib/ai/memory-store";
 import { fetchCurrentPrices } from "@/lib/market/quotes";
@@ -134,8 +140,8 @@ export function buildMcpServer(): McpServer {
         `${stats.documents} PDFs · ${stats.groups.length} group(s): ${stats.groups.join(", ")}\n` +
         (undigested > 0
           ? `\n> ⚠️ ${undigested} media file(s) in this window have no digest and are NOT ` +
-            `included below. Digesting runs at ingestion on the host machine — run the ` +
-            `analysis there (\`pnpm analyze\`) to fold them in.\n`
+            `included below. Call \`pending_media\`, read each file, save it with ` +
+            `\`save_media_digest\`, then call \`analysis_bundle\` again.\n`
           : "");
 
       const history = includeHistory
@@ -151,7 +157,7 @@ export function buildMcpServer(): McpServer {
 
       return text(
         header +
-          renderDrCsAddLedger() +
+          renderDrCsAddLedger(await loadDrCsAddLedger()) +
           renderTextBlock(textRows) +
           renderMediaDigestBlock(mediaRows) +
           portfolio +
@@ -291,7 +297,117 @@ export function buildMcpServer(): McpServer {
     }
   );
 
+  // Media is downloaded at sync but no longer digested there (that billed API
+  // credits per chart). The analyst reads each file itself — the Read tool
+  // takes the absolute path — and saves the result, so every file is read once.
+  server.registerTool(
+    "pending_media",
+    {
+      title: "Media awaiting a digest",
+      description:
+        "Charts, screenshots and PDFs in the window that nobody has read yet — the " +
+        "analysis cannot see them until they are digested. Returns each file's id, " +
+        "absolute path, group, sender, time and caption, plus the digest instructions. " +
+        "Read each file with the Read tool, then call `save_media_digest` for it.",
+      inputSchema: {
+        days: z.number().int().min(1).max(60).default(7),
+        limit: z.number().int().min(1).max(100).default(40),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ days, limit }) => {
+      const pending = getContentForAnalysis(days, 8000)
+        .filter(
+          (r) =>
+            r.media_path &&
+            r.media_digest == null &&
+            (r.media_type === "image" || r.media_type === "document") &&
+            fs.existsSync(r.media_path)
+        )
+        .sort((a, b) => b.ts - a.ts);
+      if (pending.length === 0) return text(`No undigested media in the last ${days} days.`);
+      const batch = pending.slice(0, limit);
+      const list = batch
+        .map(
+          (r) =>
+            `- id: ${r.id}\n  path: ${r.media_path}\n  ${r.media_type} (${r.media_mime ?? "?"}) · ` +
+            `${fmtTs(r.ts)} · "${r.group_name}" · ${r.sender ?? "?"}` +
+            (r.body && !/^\[(image|document|video|audio)\]$/.test(r.body)
+              ? `\n  caption: ${r.body.replace(/\s+/g, " ").slice(0, 300)}`
+              : "")
+        )
+        .join("\n");
+      return text(
+        `## ${pending.length} file(s) awaiting a digest` +
+          (pending.length > batch.length ? ` (showing newest ${batch.length})` : "") +
+          `\n\n${list}\n\n` +
+          "## How to digest each file\n" +
+          DIGEST_PROMPT +
+          "\n\nFor charts carrying DeMark or Fibonacci studies, read them with the " +
+          "technical-analysis, fibonacci-charts and demark-charts skills and follow these rules:\n" +
+          STUDIES_PROMPT +
+          "\n\nSet text_heavy=true when the file's information is mostly text or numbers " +
+          "(tweets, news, chat screenshots, broker notes, tables, screeners, calendars) and " +
+          "fill `transcript` following these rules:\n" +
+          TRANSCRIBE_PROMPT
+      );
+    }
+  );
+
+  server.registerTool(
+    "save_media_digest",
+    {
+      title: "Save a media digest",
+      description:
+        "Store your reading of one file from `pending_media`. Once saved it appears in " +
+        "`analysis_bundle` and `media_digests` like any other digest, for this and every " +
+        "later run (including the web dashboard's).",
+      inputSchema: {
+        id: z.string().describe("The file's id from pending_media"),
+        ...digestSchema.shape,
+        transcript: z
+          .string()
+          .optional()
+          .describe("Verbatim text when text_heavy is true (per the transcription rules)"),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: true },
+    },
+    async ({ id, transcript, ...digest }) => {
+      const row = getContentForAnalysis(60, 20000).find((r) => r.id === id);
+      if (!row) return text(`No media message with id ${id} in the last 60 days.`);
+      const stored: Record<string, unknown> = { ...digest, digested_by: "claude-code" };
+      if (digest.text_heavy && transcript?.trim()) stored.transcript = transcript.trim();
+      setMediaDigest(id, JSON.stringify(stored));
+      return text(`Saved digest for ${id}${stored.transcript ? " (with transcript)" : ""}.`);
+    }
+  );
+
   // ── Portfolio & market ──────────────────────────────────────────────────────
+
+  server.registerTool(
+    "sectors",
+    {
+      title: "Sector lookup",
+      description:
+        "Sub-sector for each ticker: the curated sector map first, then TradingView's " +
+        "real profile (stock sector/industry; ETF asset class, focus and index tracked) " +
+        "for anything outside it. Call this for every discussed ticker not in the " +
+        "Portfolio block instead of inferring a sector from the name.",
+      inputSchema: {
+        tickers: z.array(z.string()).min(1).max(100),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async ({ tickers }) => {
+      const classes = await classifyTickers(tickers);
+      const mapped = Object.values(classes)
+        .filter((c) => c.source === "map")
+        .map((c) => `${c.ticker}=${SECTORS[c.sector!].label}`);
+      return text(
+        (mapped.length ? `Curated map: ${mapped.join(", ")}\n` : "") + renderSectorLookup(classes)
+      );
+    }
+  );
 
   server.registerTool(
     "portfolio",
@@ -404,20 +520,15 @@ export function buildMcpServer(): McpServer {
     {
       title: "Dr CS ADD ledger",
       description:
-        "Active Dr CS watchlist adds. Each row stays live — strongest bullish signal, " +
-        "never a SELL — until Dr CS issues an explicit sell.",
+        "Dr CS watchlist adds with their lifecycle status (ACTIVE / AGING / EXPIRED / " +
+        "INVALIDATED) judged against live price, MA200 slope and each ADD's invalidation level.",
       inputSchema: {},
       annotations: { readOnlyHint: true },
     },
     async () => {
-      const adds = listActiveDrCsAdds();
-      if (adds.length === 0) return text("No active Dr CS ADDs.");
-      return text(
-        "Ticker|Entry|Added|Note\n---|---|---|---\n" +
-          adds
-            .map((a) => `${a.ticker}|${a.entryPrice ?? "—"}|${a.addedOn ?? "—"}|${a.note ?? ""}`)
-            .join("\n")
-      );
+      const rows = await loadDrCsAddLedger();
+      if (rows.length === 0) return text("No active Dr CS ADDs.");
+      return text(renderDrCsAddLedger(rows));
     }
   );
 
@@ -428,17 +539,23 @@ export function buildMcpServer(): McpServer {
       description:
         "Add (or re-activate) a ticker in the Dr CS ledger so every future analysis " +
         "treats it as a live [★ DR CS ADD]. Use this when Dr CS adds a name by voice, " +
-        "image or chat rather than a '+TICKER' message. Idempotent per ticker.",
+        "image or chat rather than a '+TICKER' message. Only for an explicit Dr CS buy " +
+        "(a '+TICKER' or words like 'buy', 'compren', 'I'm a buyer' naming the ticker) — a " +
+        "chart posted without them is a watchlist item, not an ADD. Idempotent per ticker.",
       inputSchema: {
         ticker: z.string().describe("e.g. NVDA"),
         entryPrice: z.string().optional().describe("e.g. '$182.40'"),
         note: z.string().optional().describe("Why — the thesis in a line."),
         addedOn: z.string().optional().describe("YYYY-MM-DD. Defaults to today."),
+        invalidation: z
+          .number()
+          .optional()
+          .describe("Price that breaks the thesis, if Dr CS gave one (e.g. 310 for CIEN)."),
       },
       annotations: { readOnlyHint: false, idempotentHint: true, destructiveHint: false },
     },
-    async ({ ticker, entryPrice, note, addedOn }) => {
-      recordDrCsAdd({ ticker, entryPrice, note, addedOn });
+    async ({ ticker, entryPrice, note, addedOn, invalidation }) => {
+      recordDrCsAdd({ ticker, entryPrice, note, addedOn, invalidation });
       return text(
         `Recorded ${ticker.toUpperCase()}. Active ADDs: ` +
           listActiveDrCsAdds().map((a) => a.ticker).join(", ")
@@ -451,8 +568,9 @@ export function buildMcpServer(): McpServer {
     {
       title: "Close a Dr CS ADD",
       description:
-        "Deactivate a ticker in the Dr CS ledger — only when Dr CS issues a SELL or " +
-        "the thesis is closed. An unrealised loss or a negative MA200 is NOT a reason.",
+        "Deactivate a ticker in the Dr CS ledger when Dr CS issues a SELL, or when the " +
+        "ledger shows it INVALIDATED or EXPIRED and the position has been exited. An " +
+        "unrealised loss alone is NOT a reason.",
       inputSchema: { ticker: z.string() },
       annotations: { readOnlyHint: false, idempotentHint: true, destructiveHint: true },
     },

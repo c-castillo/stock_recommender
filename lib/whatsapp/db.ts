@@ -140,7 +140,8 @@ function initSchema(db: Database.Database) {
       note        TEXT,
       added_on    TEXT,
       active      INTEGER NOT NULL DEFAULT 1,
-      created_at  INTEGER NOT NULL
+      created_at  INTEGER NOT NULL,
+      invalidation REAL
     );
 
     CREATE INDEX IF NOT EXISTS idx_messages_jid ON wa_messages(jid);
@@ -168,6 +169,9 @@ function initSchema(db: Database.Database) {
     // NULL = not yet classified. NULL reads as relevant so a message is never
     // hidden merely because the classifier has not caught up.
     "ALTER TABLE wa_messages ADD COLUMN relevance INTEGER",
+    // Price that kills a Dr CS ADD's thesis (e.g. CIEN "weekly close < 310").
+    // Below it the ADD loses its override and ordinary exit rules apply.
+    "ALTER TABLE dr_cs_adds ADD COLUMN invalidation REAL",
   ];
   for (const sql of migrations) {
     try { db.exec(sql); } catch { /* column already exists */ }
@@ -297,6 +301,12 @@ export interface MessageRow {
  */
 const DR_CS_ADD_RE = /^\+\s*[A-Za-z]/;
 
+/**
+ * WhatsApp sender ids for Dr CS. Only his "+TICKER" becomes a ledger row — a
+ * member's "+CRDO 172" or "+sndk" is chat, not an ADD.
+ */
+export const DR_CS_SENDERS = new Set(["33453584212172@lid"]);
+
 export function isDrCsAdd(body: string | null | undefined): boolean {
   return body != null && DR_CS_ADD_RE.test(body.trim());
 }
@@ -370,7 +380,7 @@ function insertParams(msg: MessageRow) {
  * SELLs the playbook would otherwise have forbidden.
  */
 function persistDrCsAdds(msg: MessageRow) {
-  if (!isDrCsAdd(msg.body)) return;
+  if (!isDrCsAdd(msg.body) || !DR_CS_SENDERS.has(msg.sender ?? "")) return;
   const addedOn = new Date(msg.ts * 1000).toISOString().slice(0, 10);
   for (const { ticker, entryPrice } of parseDrCsAdds(msg.body)) {
     recordDrCsAddIfNew({ ticker, entryPrice, addedOn, note: "auto: +TICKER in corpus" });
@@ -674,6 +684,22 @@ export function deletePosition(ticker: string) {
 
 export function clearPortfolio() {
   getDb().prepare("DELETE FROM portfolio").run();
+}
+
+// ── Generic kv ────────────────────────────────────────────────────────────────
+
+export function getKv(key: string): string | null {
+  const row = getDb().prepare("SELECT value FROM kv_store WHERE key = ?").get(key) as
+    | { value: string }
+    | undefined;
+  return row?.value ?? null;
+}
+
+export function setKv(key: string, value: string) {
+  getDb()
+    .prepare(`INSERT INTO kv_store (key, value) VALUES (?, ?)
+              ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+    .run(key, value);
 }
 
 // ── Cash balance ──────────────────────────────────────────────────────────────
@@ -1003,6 +1029,8 @@ export interface DrCsAddEntry {
   note: string | null;
   addedOn: string | null; // 'YYYY-MM-DD'
   active: boolean;
+  /** Price below which the thesis is invalidated; null when none was stated. */
+  invalidation: number | null;
 }
 
 /** Record (or re-activate) a Dr CS ADD. Idempotent per ticker. */
@@ -1011,23 +1039,29 @@ export function recordDrCsAdd(e: {
   entryPrice?: string | null;
   note?: string | null;
   addedOn?: string | null;
+  invalidation?: number | null;
 }): void {
   getDb()
     .prepare(
-      `INSERT INTO dr_cs_adds (ticker, entry_price, note, added_on, active, created_at)
-       VALUES (@ticker, @entry_price, @note, @added_on, 1, @created_at)
+      `INSERT INTO dr_cs_adds (ticker, entry_price, note, added_on, active, created_at, invalidation)
+       VALUES (@ticker, @entry_price, @note, COALESCE(@added_on, @today), 1, @created_at, @invalidation)
        ON CONFLICT(ticker) DO UPDATE SET
-         entry_price = COALESCE(@entry_price, entry_price),
-         note        = COALESCE(@note, note),
-         added_on    = COALESCE(@added_on, added_on),
-         active      = 1`
+         entry_price  = COALESCE(@entry_price, entry_price),
+         note         = COALESCE(@note, note),
+         added_on     = COALESCE(@added_on, added_on),
+         invalidation = COALESCE(@invalidation, invalidation),
+         active       = 1`
     )
     .run({
       ticker: e.ticker.toUpperCase(),
       entry_price: e.entryPrice ?? null,
       note: e.note ?? null,
-      added_on: e.addedOn ?? new Date().toISOString().slice(0, 10),
+      // Only an explicit addedOn moves the date of an existing row: an update
+      // that just sets a level must not make an old ADD look fresh.
+      added_on: e.addedOn ?? null,
+      today: new Date().toISOString().slice(0, 10),
       created_at: Date.now(),
+      invalidation: e.invalidation ?? null,
     });
 }
 
@@ -1068,9 +1102,13 @@ export function recordDrCsAddIfNew(e: {
  * existed and so only ever set the flag column.
  */
 export function listDrCsAddMessages(): { body: string | null; ts: number }[] {
-  return getDb()
-    .prepare("SELECT body, ts FROM wa_messages WHERE dr_cs_add = 1 ORDER BY ts ASC")
-    .all() as { body: string | null; ts: number }[];
+  return (
+    getDb()
+      .prepare("SELECT body, ts, sender FROM wa_messages WHERE dr_cs_add = 1 ORDER BY ts ASC")
+      .all() as { body: string | null; ts: number; sender: string | null }[]
+  )
+    .filter((r) => DR_CS_SENDERS.has(r.sender ?? ""))
+    .map(({ body, ts }) => ({ body, ts }));
 }
 
 /** Deactivate a Dr CS ADD (Dr CS issued a SELL / thesis closed). */
@@ -1083,10 +1121,11 @@ export function listActiveDrCsAdds(): DrCsAddEntry[] {
   return (
     getDb()
       .prepare(
-        "SELECT ticker, entry_price, note, added_on, active FROM dr_cs_adds WHERE active = 1 ORDER BY added_on DESC, ticker"
+        "SELECT ticker, entry_price, note, added_on, active, invalidation FROM dr_cs_adds WHERE active = 1 ORDER BY added_on DESC, ticker"
       )
       .all() as {
         ticker: string; entry_price: string | null; note: string | null; added_on: string | null; active: number;
+        invalidation: number | null;
       }[]
   ).map((r) => ({
     ticker: r.ticker,
@@ -1094,5 +1133,6 @@ export function listActiveDrCsAdds(): DrCsAddEntry[] {
     note: r.note,
     addedOn: r.added_on,
     active: r.active === 1,
+    invalidation: r.invalidation,
   }));
 }
