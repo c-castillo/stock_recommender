@@ -409,12 +409,17 @@ async function runJob(job: SyncJob) {
     }
   }
 
-  // Stage 1 at ingestion: digest freshly downloaded charts/PDFs so the analysis
-  // call never has to. Best-effort and capped — never fails the sync job.
-  try {
-    await ensureMediaDigests(windowDays);
-  } catch {
-    /* digests retried on next sync or at analysis time */
+  // Stage 1 at ingestion is OFF by default: digesting here bills API credits
+  // for every chart. Media is only downloaded; the Claude Code analyst reads
+  // it at analysis time on the user's plan (MCP `pending_media` →
+  // `save_media_digest`), and the web pipeline still digests on demand.
+  // MEDIA_DIGEST_AT_SYNC=1 restores the old behaviour.
+  if (process.env.MEDIA_DIGEST_AT_SYNC === "1") {
+    try {
+      await ensureMediaDigests(windowDays);
+    } catch {
+      /* digests retried on next sync or at analysis time */
+    }
   }
 
   job.status = "done";
