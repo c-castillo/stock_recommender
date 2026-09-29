@@ -20,12 +20,15 @@ on that curl) until it does.
 
 ## 1. Zesty portfolio
 
-`curl -s -m 180 -X POST localhost:3000/api/portfolio/sync-zesty`
+1. Snapshot the stored portfolio first — the sync overwrites it:
+   `curl -s localhost:3000/api/portfolio` (positions + `cash_balance`).
+2. `curl -s -m 180 -X POST localhost:3000/api/portfolio/sync-zesty`
 
-It logs into Zesty headlessly and replaces the stored positions and cash. Read
-the response: report the position count and cash, and compare them with the
-previous state if you know it (new or closed positions, a cash change = a
-trade happened). A 502 means the login failed (credentials in `.env.local`, or
+It logs into Zesty headlessly and replaces the stored positions and cash. Diff
+the response against the snapshot: new or closed positions, share-count
+changes, and the cash delta (a cash change with no share change is a deposit,
+withdrawal or dividend). Report it in one or two lines and pass it to the
+analyst in step 3. A 502 means the login failed (credentials in `.env.local`, or
 Zesty changed its login flow) — say so and continue with the stored portfolio,
 flagging that the analysis uses the last successful sync.
 
@@ -61,21 +64,41 @@ Delegate to the `stock-analyst` agent (Opus at max effort; it also keeps the
 chart images out of this context). Put today's date in the paths and prompt:
 
 > Run the full daily analysis for YYYY-MM-DD. The Zesty portfolio and WhatsApp
-> corpus were just synced.
+> corpus were just synced. Zesty change since the last sync: <positions and
+> cash before → after, from step 1>.
 > 1. Call `corpus_status`; if the newest message is over a day old, stop and say so.
 > 2. Digest every file from `pending_media` (repeat until none remain), following
 >    your step 0 and the chart-reading skills. Flag stale newspaper editions.
 > 3. Write the full report per the playbook and your instructions.
-> 4. Save the report to `.whatsapp/reports/YYYY-MM-DD.md`.
-> 5. Save the recommendations to `.whatsapp/reports/YYYY-MM-DD.json` as
+> 4. Open the report with a **🩺 Portfolio health** section, before the market
+>    summary, computed from the bundle's Portfolio, Performance, RRG and ADD
+>    ledger blocks at live prices:
+>    - Performance: 3M / 6M / YTD vs SPY, QQQ and the main sector ETF, the
+>      drawdown from peak, and which way the windows disagree.
+>    - Composition: % by sub-sector and theme, with the 35% / 60% flags; cash %;
+>      hedge coverage (hedge notional × leverage ÷ covered exposure).
+>    - Winners vs losers: the share of the book in positions losing money vs
+>      making it, and whether the largest weights are the best or worst trends
+>      (Chartizard rule 2).
+>    - Rule breaches: holdings below a falling MA200 (rule 7), ledger ADDs that
+>      are EXPIRED, INVALIDATED or flagged ⚠, and sectors above their cap
+>      without a trim.
+>    - Change since the last report (`latest_report`, and the Zesty diff if the
+>      prompt gives one): what was traded, and whether the last session's
+>      recommendations were followed.
+>    - The top three fixes, each with shares and $ at live prices.
+>    Keep it to a table plus at most eight lines of prose.
+> 5. Save the report to `.whatsapp/reports/YYYY-MM-DD.md`.
+> 6. Save the recommendations to `.whatsapp/reports/YYYY-MM-DD.json` as
 >    `{"recommendations": [...]}`, one object per ticker in the report's 💡 section
 >    plus one per hedge instrument, each with exactly: `ticker`, `company`,
 >    `action` (BUY|SELL|HOLD), `confidence` (0-100 number), `entryPrice`,
 >    `priceTarget`, `stopLoss` (strings or null, live-priced), `reasoning` (the
 >    rationale with its dated evidence), `mentions` (corpus mentions this
 >    session), `sources` (short dated source labels).
-> 6. Return: files digested, anything left undigested, both paths, and a table of
->    ticker / action / confidence / entry / stop plus the hedge line.
+> 7. Return: files digested, anything left undigested, both paths, the 🩺
+>    Portfolio health section verbatim, and a table of ticker / action /
+>    confidence / entry / stop plus the hedge line.
 
 ## 4. Publish to the web
 
@@ -98,6 +121,7 @@ without this step.
 - Zesty: positions, cash, and any change since the last sync.
 - WhatsApp: messages and media per group, and whether a reconnect was needed.
 - Files digested and anything left undigested.
+- The 🩺 Portfolio health section.
 - The agent's actions table and hedge line.
 - The report path and the backup path.
 - What the web still won't show: the narrative and per-ticker history, which
