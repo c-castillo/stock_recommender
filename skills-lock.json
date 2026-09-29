@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "transcribing-images": {
+      "source": "oaustegard/claude-skills",
+      "sourceType": "github",
+      "skillPath": "transcribing-images/SKILL.md",
+      "computedHash": "eef761344e572ddc1ab2dd60163160f1dda0b98ae987c33a4f50a49deecd3205"
+    }
+  }
+}

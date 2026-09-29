@@ -1,13 +1,13 @@
 /**
- * Stage 2 — cheap signal extraction + message ranking (model tiering: Haiku).
+ * Stage 2 — signal extraction + message ranking (model tiering: Sonnet).
  *
- * A single Haiku pass condenses the relevant text corpus into a per-ticker
+ * A single Sonnet pass condenses the relevant text corpus into a per-ticker
  * sentiment/conviction rollup. That rollup (a) is injected into the synthesis
  * prompt as pre-digested context, and (b) drives rank-and-truncate of the raw
  * messages so the flagship synthesis call only sees the highest-signal subset
  * instead of all ~3,500 messages.
  *
- * Fully fail-safe: if the Haiku pass throws, the rollup is empty and ranking
+ * Fully fail-safe: if the Sonnet pass throws, the rollup is empty and ranking
  * falls back to a Dr-CS-first keyword-density heuristic.
  */
 
@@ -16,7 +16,7 @@ import { generateObject } from "ai";
 import { z } from "zod";
 import { isDrCsAdd, type MessageForAnalysis } from "@/lib/whatsapp/db";
 
-/** Messages fed into the Haiku signal pass (most recent first). */
+/** Messages fed into the Sonnet signal pass (most recent first). */
 const SIGNAL_MSG_CAP = 1200;
 /** Max raw messages the synthesis call receives after ranking. */
 export const SYNTHESIS_MSG_LIMIT = 1500;
@@ -44,7 +44,7 @@ const TICKER_RE = /\b[A-Z]{1,5}\b/g;
 const KEYWORD_RE =
   /\$[0-9]|%|precio|target|stop|soporte|resistencia|comprar?|vender?|long|short|bull|bear|fibonacci|earnings|reporte|chart|grafico/i;
 
-/** Stage 2 pass: condense the corpus into a per-ticker rollup via Haiku. */
+/** Stage 2 pass: condense the corpus into a per-ticker rollup via Sonnet. */
 export async function summarizeSignals(
   textRows: MessageForAnalysis[]
 ): Promise<SignalRollup> {
@@ -58,9 +58,11 @@ export async function summarizeSignals(
 
   try {
     const { object } = await generateObject({
-      model: anthropic("claude-haiku-4-5"),
+      model: anthropic("claude-sonnet-5"),
       schema: rollupSchema,
-      maxOutputTokens: 4096,
+      // Headroom over Haiku's 4096: Sonnet 5 can spend some of the budget
+      // thinking, and a truncated object fails the whole rollup silently.
+      maxOutputTokens: 8192,
       messages: [
         {
           role: "user",

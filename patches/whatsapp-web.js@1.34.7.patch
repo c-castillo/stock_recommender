@@ -1,0 +1,12 @@
+diff --git a/src/structures/Message.js b/src/structures/Message.js
+index dd977e85b0c0c40d2625cd337264fc9ae3bed17b..856e0a735a17c87e0f0cbe2d1b4208f5ba9da28e 100644
+--- a/src/structures/Message.js
++++ b/src/structures/Message.js
+@@ -566,6 +566,7 @@ class Message extends Base {
+                         mediaKey: msg.mediaKey,
+                         mediaKeyTimestamp: msg.mediaKeyTimestamp,
+                         type: msg.type,
++                        mimetype: msg.mimetype,
+                         signal: new AbortController().signal,
+                         downloadQpl: mockQpl,
+                     });
