@@ -10,7 +10,8 @@
 import { listPortfolio, getCashBalance, listActiveDrCsAdds } from "@/lib/whatsapp/db";
 import { fetchMa200Slopes } from "@/lib/ma200";
 import { fetchCurrentPrices } from "@/lib/market/quotes";
-import { SECTORS, DEFENSIVE_LONGS, sectorOf, type SectorId } from "@/lib/market/sectors";
+import { SECTORS, DEFENSIVE_LONGS, type SectorId } from "@/lib/market/sectors";
+import { classifyTickers, classificationLabel } from "@/lib/market/classify";
 import { fetchRrg, heading, type RrgPoint } from "@/lib/market/rrg";
 import { fetchPerformance, renderPerformance } from "@/lib/market/performance";
 
@@ -30,6 +31,12 @@ export async function buildPortfolioContext(): Promise<string> {
   const positions = listPortfolio();
   const cash = getCashBalance();
   const portfolioTickers = positions.map((p) => p.ticker);
+  const activeAdds = listActiveDrCsAdds();
+
+  // Curated map first, TradingView for the rest — so a holding outside the map
+  // lands in the exposure table by its real profile instead of the model's guess.
+  const classes = await classifyTickers([...portfolioTickers, ...activeAdds.map((a) => a.ticker)]);
+  const sectorOf = (t: string): SectorId | null => classes[t.toUpperCase()]?.sector ?? null;
 
   // Benchmarks and hedge instruments for every sector actually held, fetched
   // alongside the holdings so hedge sizing prices the present like entries do.
@@ -105,7 +112,7 @@ export async function buildPortfolioContext(): Promise<string> {
         exposure.set(sector, (exposure.get(sector) ?? 0) + mktVal);
         marketValueTotal += mktVal;
       }
-      const sectorStr = sector ? SECTORS[sector].label : "unclassified — classify it";
+      const sectorStr = classificationLabel(classes[p.ticker.toUpperCase()]);
       section += `${p.ticker}|${sectorStr}|${p.shares}|${avgCost}|${price}|${mv}|${pl}|${slopeText(slopes[p.ticker])}\n`;
     }
     section += renderSectorExposure(exposure, cash ?? 0, slopes, marketPrices);
@@ -122,12 +129,9 @@ export async function buildPortfolioContext(): Promise<string> {
   // Sector of the active ADD names not held, so a new BUY can be weighed
   // against the sector it would add to.
   const held = new Set(portfolioTickers);
-  const addSectors = listActiveDrCsAdds()
+  const addSectors = activeAdds
     .filter((a) => !held.has(a.ticker))
-    .map((a) => {
-      const id = sectorOf(a.ticker);
-      return `${a.ticker}=${id ? SECTORS[id].label : "unclassified"}`;
-    });
+    .map((a) => `${a.ticker}=${classificationLabel(classes[a.ticker.toUpperCase()])}`);
   if (addSectors.length > 0) {
     section += `\nSectors of active ADDs not held: ${addSectors.join(", ")}\n`;
   }
