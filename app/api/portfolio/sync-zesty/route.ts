@@ -1,5 +1,13 @@
 import { fetchZestyData } from "@/lib/zesty/portfolio";
-import { upsertPosition, setCashBalance, clearPortfolio, listPortfolio, getCashBalance } from "@/lib/whatsapp/db";
+import {
+  upsertPosition,
+  setCashBalance,
+  clearPortfolio,
+  listPortfolio,
+  getCashBalance,
+  upsertPortfolioSnapshot,
+  getPerformanceAnchor,
+} from "@/lib/whatsapp/db";
 
 export const dynamic = "force-dynamic";
 
@@ -42,10 +50,36 @@ export async function POST() {
 
   if (cashBalance !== null) setCashBalance(cashBalance);
 
+  // Record today's total here rather than leaving it to the dashboard page:
+  // that only wrote a row while a browser tab was open, so days synced from
+  // /daily-run left gaps in the history the drawdown is measured against.
+  const cash = cashBalance ?? getCashBalance() ?? 0;
+  const marketValue = positions.reduce((sum, p) => sum + (p.market_value ?? 0), 0);
+  if (marketValue > 0) {
+    upsertPortfolioSnapshot({
+      date: new Date().toLocaleDateString("en-CA"),
+      total_value: marketValue + cash,
+      market_value: marketValue,
+      cash_balance: cash,
+    });
+  }
+
+  // The performance block is only as good as the hand-maintained list of
+  // deposits and withdrawals; expose how fresh it is so a caller can compare
+  // it with the broker's own movements.
+  const anchor = getPerformanceAnchor();
+  const lastFlow = anchor?.flows.reduce<string | null>(
+    (latest, f) => (latest == null || f.date > latest ? f.date : latest),
+    null
+  );
+
   return Response.json({
     imported: positions.length,
     cash_balance: cashBalance ?? getCashBalance(),
     positions: listPortfolio(),
+    performance_anchor: anchor
+      ? { asOf: anchor.asOf, flows: anchor.flows.length, lastFlowDate: lastFlow ?? null }
+      : null,
   });
 }
 

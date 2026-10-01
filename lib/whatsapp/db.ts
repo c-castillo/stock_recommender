@@ -900,7 +900,19 @@ export function getPortfolioHistory(days = 90): PortfolioSnapshot[] {
 export function loadAiRecommendations(): StoredAIRecommendation[] {
   return (
     getDb()
-      .prepare("SELECT * FROM ai_recommendations ORDER BY confidence DESC")
+      // Orders first, then what is held, then everything else — each by
+      // confidence. Sorting on confidence alone put "not held, do not buy" rows
+      // at 85 above the day's actual BUY and SELL orders.
+      .prepare(
+        `SELECT r.* FROM ai_recommendations r
+         ORDER BY CASE
+                    WHEN r.action = 'BUY' THEN 0
+                    WHEN r.action = 'SELL' AND r.ticker IN (SELECT ticker FROM portfolio) THEN 0
+                    WHEN r.ticker IN (SELECT ticker FROM portfolio) THEN 1
+                    ELSE 2
+                  END,
+                  r.confidence DESC`
+      )
       .all() as {
         ticker: string; company: string; action: string; confidence: number;
         entry_price: string | null; price_target: string | null; stop_loss: string | null;
@@ -986,6 +998,61 @@ export function listUnclassifiedMessages(
        LIMIT ?`
     )
     .all(...jids, limit) as { id: string; body: string }[];
+}
+
+/**
+ * The same pending set, addressed by SQLite rowid and with its timestamp. For a
+ * chat client classifying through MCP: a rowid is a few digits where a message
+ * id is ~70 characters, and every id is echoed back in the verdict call.
+ */
+export function listUnclassifiedForReview(
+  jids: string[],
+  limit = 200
+): { rowid: number; ts: number; body: string }[] {
+  if (jids.length === 0) return [];
+  const ph = jids.map(() => "?").join(",");
+  return getDb()
+    .prepare(
+      `SELECT rowid, ts, body FROM wa_messages
+       WHERE jid IN (${ph})
+         AND relevance IS NULL
+         AND main_analyst_add = 0
+         AND media_path IS NULL
+         AND body IS NOT NULL AND body != ''
+       ORDER BY ts DESC
+       LIMIT ?`
+    )
+    .all(...jids, limit) as { rowid: number; ts: number; body: string }[];
+}
+
+/** Bodies for a set of rowids, restricted to still-unclassified rows in `jids`
+ *  so a verdict can never touch an exempt group or overwrite an earlier one. */
+export function getUnclassifiedBodies(
+  jids: string[],
+  rowids: number[]
+): { rowid: number; body: string }[] {
+  if (jids.length === 0 || rowids.length === 0) return [];
+  const jph = jids.map(() => "?").join(",");
+  const rph = rowids.map(() => "?").join(",");
+  return getDb()
+    .prepare(
+      `SELECT rowid, body FROM wa_messages
+       WHERE jid IN (${jph}) AND rowid IN (${rph})
+         AND relevance IS NULL AND main_analyst_add = 0 AND media_path IS NULL`
+    )
+    .all(...jids, ...rowids) as { rowid: number; body: string }[];
+}
+
+/** Persist relevance verdicts addressed by rowid. */
+export function setRelevanceByRowid(verdicts: { rowid: number; relevant: boolean }[]): number {
+  if (verdicts.length === 0) return 0;
+  const db = getDb();
+  const stmt = db.prepare("UPDATE wa_messages SET relevance = ? WHERE rowid = ? AND relevance IS NULL");
+  let n = 0;
+  db.transaction(() => {
+    for (const v of verdicts) n += stmt.run(v.relevant ? 1 : 0, v.rowid).changes;
+  })();
+  return n;
 }
 
 /** Persist relevance verdicts. */

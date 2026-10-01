@@ -32,6 +32,10 @@ import {
   getCashBalance,
   getPortfolioGoal,
   getPortfolioHistory,
+  listGroupJidsByName,
+  listUnclassifiedForReview,
+  getUnclassifiedBodies,
+  setRelevanceByRowid,
   listActiveMainAnalystAdds,
   recordMainAnalystAdd,
   deactivateMainAnalystAdd,
@@ -53,6 +57,10 @@ import { digestSchema, PROMPT as DIGEST_PROMPT, STUDIES_PROMPT, TRANSCRIBE_PROMP
 import { loadAllWikis } from "@/lib/ai/wiki";
 import { readAllMemories } from "@/lib/ai/memory-store";
 import { fetchCurrentPrices } from "@/lib/market/quotes";
+import { fetchRecentFilings, renderFilingsBlock } from "@/lib/market/filings";
+import { PRUNABLE_GROUPS } from "@/lib/whatsapp/analysis-groups";
+import { RELEVANCE_INSTRUCTIONS } from "@/lib/ai/relevance";
+import { hasExplicitFinanceContent } from "@/lib/whatsapp/noise";
 import { fetchMa200Slopes } from "@/lib/ma200";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -60,6 +68,18 @@ import { fetchMa200Slopes } from "@/lib/ma200";
 function text(body: string) {
   return { content: [{ type: "text" as const, text: body }] };
 }
+
+/** Today's date on the host's clock. toISOString() is UTC, which is already
+ *  tomorrow during an evening run in Chile. */
+function localDate(): string {
+  return new Date().toLocaleDateString("en-CA");
+}
+
+/** Same look-back the in-app Stage 3 uses — wide enough to catch a quarter's print. */
+const FILINGS_WINDOW_DAYS = 45;
+
+/** The Haiku pass's rules, minus its output-format line (the tool call is the format). */
+const RELEVANCE_RULES = RELEVANCE_INSTRUCTIONS.replace(/\n\nReturn one verdict per message[\s\S]*$/, "");
 
 function fmtTs(ts: number): string {
   return new Date(ts * 1000).toISOString().replace("T", " ").slice(0, 16);
@@ -99,9 +119,11 @@ export function buildMcpServer(): McpServer {
       description:
         "Everything needed to write the investment report, in one call: the active " +
         "main analyst ADD ledger, relevance-filtered WhatsApp messages, cached chart/PDF " +
-        "digests, portfolio with live prices and MA200 slopes, prior-run history and " +
-        "cross-session memory. This is the same context the in-app Stage-3 synthesis " +
-        "receives. Pair it with `playbook`.",
+        "digests, recent SEC filings for held and ADD tickers, portfolio with live " +
+        "prices and MA200 slopes, prior-run history and cross-session memory. This is " +
+        "the same context the in-app Stage-3 synthesis receives. Pair it with `playbook`. " +
+        "The result is large and is usually saved to a file: read that file in a few big " +
+        "sequential chunks issued together in ONE turn, not a dozen small ones.",
       inputSchema: {
         days: z
           .number()
@@ -114,10 +136,21 @@ export function buildMcpServer(): McpServer {
           .boolean()
           .default(true)
           .describe("Include the per-ticker wiki (last verdict per ticker) and prior-session memory."),
+        fullDetailDays: z
+          .number()
+          .int()
+          .min(1)
+          .max(30)
+          .optional()
+          .describe(
+            "Print verbatim media transcripts only for the last N days; older files keep " +
+              "their summary and study lines. Set it to the days since the previous report " +
+              "(minimum 2). Omit for every transcript in the window."
+          ),
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    async ({ days, includeHistory }) => {
+    async ({ days, includeHistory, fullDetailDays }) => {
       const { textRows, mediaRows, stats } = loadAnalysisInputs(days);
 
       if (stats.textMessages === 0 && stats.images === 0 && stats.documents === 0) {
@@ -132,10 +165,23 @@ export function buildMcpServer(): McpServer {
       }
 
       const undigested = countUndigestedMedia(days);
-      const portfolio = await buildPortfolioContext();
+      // Company events the corpus cannot see (earnings, 8-Ks), bounded to what
+      // is held or on the ADD ledger — the same fan-out the in-app run does.
+      const eventTickers = [
+        ...listPortfolio().map((p) => p.ticker),
+        ...listActiveMainAnalystAdds().map((a) => a.ticker),
+      ];
+      const [portfolio, filings] = await Promise.all([
+        buildPortfolioContext(),
+        fetchRecentFilings(eventTickers, FILINGS_WINDOW_DAYS),
+      ]);
+      const transcriptSince =
+        fullDetailDays != null && fullDetailDays < days
+          ? Math.floor(Date.now() / 1000) - fullDetailDays * 86400
+          : undefined;
 
       const header =
-        `# Analysis bundle — ${new Date().toISOString().slice(0, 10)}, last ${days} day(s)\n` +
+        `# Analysis bundle — ${localDate()}, last ${days} day(s)\n` +
         `Sources: ${stats.textMessages} text messages · ${stats.images} images · ` +
         `${stats.documents} PDFs · ${stats.groups.length} group(s): ${stats.groups.join(", ")}\n` +
         (undigested > 0
@@ -158,8 +204,9 @@ export function buildMcpServer(): McpServer {
       return text(
         header +
           renderMainAnalystAddLedger(await loadMainAnalystAddLedger()) +
+          renderFilingsBlock(filings, FILINGS_WINDOW_DAYS) +
           renderTextBlock(textRows) +
-          renderMediaDigestBlock(mediaRows) +
+          renderMediaDigestBlock(mediaRows, { transcriptSince }) +
           portfolio +
           history
       );
@@ -379,6 +426,94 @@ export function buildMcpServer(): McpServer {
       if (digest.text_heavy && transcript?.trim()) stored.transcript = transcript.trim();
       setMediaDigest(id, JSON.stringify(stored));
       return text(`Saved digest for ${id}${stored.transcript ? " (with transcript)" : ""}.`);
+    }
+  );
+
+  // ── Noise marking ───────────────────────────────────────────────────────────
+  //
+  // The same Stage 0b the in-app run does with Haiku on the API key
+  // (lib/ai/relevance.ts), done here by the chat client on the user's plan.
+  // Same safety model: it MARKS, never deletes; only PRUNABLE_GROUPS are ever
+  // listed; a message left out of the verdict call stays unclassified, which
+  // reads as relevant.
+
+  server.registerTool(
+    "pending_relevance",
+    {
+      title: "Messages awaiting a relevance verdict",
+      description:
+        "Text messages in the mixed groups that nobody has classified as market-relevant " +
+        "or off-topic chatter yet. Until they are, all of them go into the analysis. " +
+        "Returns `rowid: text` lines plus the rules. Classify them and call `save_relevance`.",
+      inputSchema: {
+        limit: z.number().int().min(1).max(400).default(200),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ limit }) => {
+      const jids = listGroupJidsByName(PRUNABLE_GROUPS);
+      const rows = listUnclassifiedForReview(jids, limit + 1);
+      if (rows.length === 0) return text("No messages awaiting a relevance verdict.");
+      const batch = rows.slice(0, limit);
+      // Oldest first, so replies read after what they answer.
+      const lines = [...batch]
+        .reverse()
+        .map((r) => `${r.rowid}: ${r.body.replace(/\s+/g, " ").slice(0, 300)}`)
+        .join("\n");
+      return text(
+        `## ${batch.length} message(s) to classify` +
+          (rows.length > limit ? " (more remain — call again after saving)" : "") +
+          `\nGroups: ${PRUNABLE_GROUPS.join(", ")}\n\n` +
+          RELEVANCE_RULES +
+          "\n\nThe number before each message is its rowid. Put every rowid in exactly one of " +
+          "`save_relevance`'s two lists.\n\n" +
+          lines
+      );
+    }
+  );
+
+  server.registerTool(
+    "save_relevance",
+    {
+      title: "Save relevance verdicts",
+      description:
+        "Store verdicts for messages from `pending_relevance`. `noise` rows are hidden from " +
+        "future analyses (not deleted); `relevant` rows stay in. A message with an explicit " +
+        "price, percentage, $TICKER or finance term is kept as relevant whatever you say.",
+      inputSchema: {
+        relevant: z.array(z.number().int()).describe("rowids that could inform a recommendation"),
+        noise: z.array(z.number().int()).describe("rowids that are off-topic chatter"),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: true, destructiveHint: false },
+    },
+    async ({ relevant, noise }) => {
+      const jids = listGroupJidsByName(PRUNABLE_GROUPS);
+      // Only rows that are still pending in a prunable group can be written.
+      const pending = new Map(
+        getUnclassifiedBodies(jids, [...relevant, ...noise]).map((r) => [r.rowid, r.body])
+      );
+      const relevantSet = new Set(relevant);
+      let protectedCount = 0;
+      const verdicts: { rowid: number; relevant: boolean }[] = [];
+      for (const [rowid, body] of pending) {
+        // A row named in both lists is kept: when unsure, relevant.
+        let isRelevant = relevantSet.has(rowid);
+        if (!isRelevant && hasExplicitFinanceContent(body)) {
+          isRelevant = true;
+          protectedCount++;
+        }
+        verdicts.push({ rowid, relevant: isRelevant });
+      }
+      const saved = setRelevanceByRowid(verdicts);
+      const markedNoise = verdicts.filter((v) => !v.relevant).length;
+      const skipped = new Set([...relevant, ...noise]).size - pending.size;
+      const left = listUnclassifiedForReview(jids, 1).length;
+      return text(
+        `Saved ${saved} verdict(s): ${saved - markedNoise} relevant, ${markedNoise} noise` +
+          (protectedCount > 0 ? ` (${protectedCount} kept as relevant for explicit finance content)` : "") +
+          (skipped > 0 ? `; ${skipped} rowid(s) ignored (unknown, exempt or already classified)` : "") +
+          `. ${left > 0 ? "More messages are pending." : "Nothing left to classify."}`
+      );
     }
   );
 

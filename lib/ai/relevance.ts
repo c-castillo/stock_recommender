@@ -45,7 +45,9 @@ const verdictSchema = z.object({
   ),
 });
 
-const INSTRUCTIONS = `You filter a WhatsApp corpus that feeds a US-equity trading analyst.
+/** The classification rules. Exported so the MCP `pending_relevance` tool hands
+ *  a chat client the same rules this Haiku pass follows. */
+export const RELEVANCE_INSTRUCTIONS = `You filter a WhatsApp corpus that feeds a US-equity trading analyst.
 
 For each numbered message decide whether it could inform an investment recommendation.
 
@@ -98,7 +100,7 @@ async function classifyBatch(
     model: anthropic("claude-haiku-4-5"),
     schema: verdictSchema,
     maxOutputTokens: 4096,
-    messages: [{ role: "user", content: `${INSTRUCTIONS}\n\n${renderBatch(rows)}` }],
+    messages: [{ role: "user", content: `${RELEVANCE_INSTRUCTIONS}\n\n${renderBatch(rows)}` }],
   });
 
   const out: { id: string; relevant: boolean }[] = [];

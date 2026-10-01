@@ -16,7 +16,7 @@
  */
 
 import { randomUUID } from "crypto";
-import { getClient, getStatus } from "./client";
+import { getClient, getStatus, restartClient } from "./client";
 import {
   countAllMessages,
   countAllMedia,
@@ -102,6 +102,11 @@ export interface GroupProgress {
   status: GroupSyncStatus;
   messagesReceived: number;
   mediaDownloaded: number;
+  /** Rows this sync added, as opposed to the group totals above. The live
+   *  listener stores messages as they arrive, so a quiet-looking sync can
+   *  still follow a busy day. */
+  newMessages: number;
+  newMedia: number;
   page: number;
   error?: string;
 }
@@ -116,6 +121,9 @@ export interface SyncJob {
   groups: GroupProgress[];
   /** Backfill mode: widen the window and re-scan past history to fill gaps. */
   backfill: boolean;
+  /** Set when the job restarted the WhatsApp client mid-run to recover from a
+   *  dead page (see isDeadPage). */
+  reconnected?: boolean;
   /** Why the job as a whole failed, when it died before/outside any single
    *  group. Without this a job-level throw left every group sitting at
    *  "pending" with no explanation anywhere — the UI showed "En cola" forever
@@ -166,6 +174,8 @@ export async function startSyncJob(
       status: "pending",
       messagesReceived: 0,
       mediaDownloaded: 0,
+      newMessages: 0,
+      newMedia: 0,
       page: 0,
     })),
   };
@@ -219,8 +229,19 @@ const BACKFILL_DAYS = 14;
 
 // ── Internal runner ───────────────────────────────────────────────────────────
 
+/**
+ * WhatsApp Web reloaded (or the tab died) underneath puppeteer: the client
+ * still reports "connected" but every page call throws. Only a browser restart
+ * fixes it, so these are the errors worth one automatic reconnect.
+ */
+function isDeadPage(err: unknown): boolean {
+  return /detached Frame|Target closed|Session closed|Execution context was destroyed/i.test(
+    errText(err)
+  );
+}
+
 async function runJob(job: SyncJob) {
-  const client = getClient();
+  let client = getClient();
   if (!client) {
     job.status = "error";
     job.error =
@@ -236,176 +257,199 @@ async function runJob(job: SyncJob) {
   const windowDays = job.backfill ? BACKFILL_DAYS : SYNC_DAYS;
 
   for (const gp of job.groups) {
-    try {
-      // Inside the try: a throw here used to escape the per-group handler and
-      // abort the entire job, leaving every remaining group at "pending".
-      upsertGroup(gp.jid, gp.name);
-      gp.status = "fetching";
+    const before = { messages: countAllMessages(gp.jid), media: countAllMedia(gp.jid) };
+    // At most two attempts, and only one browser restart per job: a dead page
+    // fails every group the same way, so the first group to hit it pays for
+    // the reconnect and the rest run on the fresh client.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        // Inside the try: a throw here used to escape the per-group handler and
+        // abort the entire job, leaving every remaining group at "pending".
+        upsertGroup(gp.jid, gp.name);
+        gp.status = "fetching";
+        gp.page = 0;
 
-      // Hard cutoff: only sync the last `windowDays` days (unix seconds).
-      const cutoffTs = Math.floor(Date.now() / 1000) - windowDays * 86400;
+        // Hard cutoff: only sync the last `windowDays` days (unix seconds).
+        const cutoffTs = Math.floor(Date.now() / 1000) - windowDays * 86400;
 
-      // Cursor: timestamp of the newest message already stored for this group.
-      // Used to stop the pagination loop once the browser has loaded messages
-      // older than what we already have, and to skip processing known messages.
-      // Suppressed in backfill mode so the full window is re-scanned for gaps.
-      const newestStored = getNewestMessage(gp.jid);
-      const newestStoredTs = job.backfill ? null : (newestStored?.ts ?? null);
+        // Cursor: timestamp of the newest message already stored for this group.
+        // Used to stop the pagination loop once the browser has loaded messages
+        // older than what we already have, and to skip processing known messages.
+        // Suppressed in backfill mode so the full window is re-scanned for gaps.
+        const newestStored = getNewestMessage(gp.jid);
+        const newestStoredTs = job.backfill ? null : (newestStored?.ts ?? null);
 
-      await ensureStoreShim(client);
+        await ensureStoreShim(client);
 
-      // ── Phase 0: force-load the most recent messages ────────────────────
-      // fetchMessages / loadEarlierMsgs only ever page *backward*. If the
-      // browser's recent window is stale — e.g. the live socket missed
-      // messages while the process was busy or briefly disconnected — the
-      // backward loop below can never recover them, silently truncating the
-      // sync to whatever happened to be in the store. Pull the chat to the
-      // bottom first (the one path that fetches messages *newer* than what is
-      // loaded) until the store's newest message stops advancing, so today's
-      // messages are guaranteed present before we paginate into history.
-      await loadLatestWindow(client, gp.jid);
+        // ── Phase 0: force-load the most recent messages ────────────────────
+        // fetchMessages / loadEarlierMsgs only ever page *backward*. If the
+        // browser's recent window is stale — e.g. the live socket missed
+        // messages while the process was busy or briefly disconnected — the
+        // backward loop below can never recover them, silently truncating the
+        // sync to whatever happened to be in the store. Pull the chat to the
+        // bottom first (the one path that fetches messages *newer* than what is
+        // loaded) until the store's newest message stops advancing, so today's
+        // messages are guaranteed present before we paginate into history.
+        await loadLatestWindow(client, gp.jid);
 
-      // ── Phase 1: load history into the browser store ────────────────────
-      let loadedCount = (await getChatStats(client, gp.jid)).count;
-      let stableRounds = 0;
-      const maxStableRounds = job.backfill ? MAX_STABLE_ROUNDS_BACKFILL : MAX_STABLE_ROUNDS;
+        // ── Phase 1: load history into the browser store ────────────────────
+        let loadedCount = (await getChatStats(client, gp.jid)).count;
+        let stableRounds = 0;
+        const maxStableRounds = job.backfill ? MAX_STABLE_ROUNDS_BACKFILL : MAX_STABLE_ROUNDS;
 
-      while (loadedCount < MAX_MESSAGES && stableRounds < maxStableRounds && gp.page < MAX_PAGES) {
-        // Fire both mechanisms each iteration so we keep feeding the server
-        // with requests as it delivers chunks.
-        await triggerHistoryLoad(client, gp.jid);
+        while (loadedCount < MAX_MESSAGES && stableRounds < maxStableRounds && gp.page < MAX_PAGES) {
+          // Fire both mechanisms each iteration so we keep feeding the server
+          // with requests as it delivers chunks.
+          await triggerHistoryLoad(client, gp.jid);
 
-        // Return as soon as the chunk lands rather than always burning the
-        // full POLL_INTERVAL_MS. One combined read gets the count and the
-        // oldest timestamp the loop needs, halving the CDP round trips.
-        const stats = await waitForGrowth(client, gp.jid, loadedCount);
-        const newCount = stats.count;
-        gp.page += 1;
-        gp.messagesReceived = newCount;
+          // Return as soon as the chunk lands rather than always burning the
+          // full POLL_INTERVAL_MS. One combined read gets the count and the
+          // oldest timestamp the loop needs, halving the CDP round trips.
+          const stats = await waitForGrowth(client, gp.jid, loadedCount);
+          const newCount = stats.count;
+          gp.page += 1;
+          gp.messagesReceived = newCount;
 
-        if (newCount > loadedCount) {
-          loadedCount = newCount;
-          stableRounds = 0;
-        } else {
-          stableRounds += 1;
+          if (newCount > loadedCount) {
+            loadedCount = newCount;
+            stableRounds = 0;
+          } else {
+            stableRounds += 1;
+          }
+
+          const oldestBrowserTs = stats.oldestTs;
+
+          // Early stop: browser has gone back past the cutoff. Suppressed in
+          // backfill mode: the store usually already spans further back than the
+          // window (from prior syncs), so this would break on the first
+          // iteration and never let the protocol history-sync re-fire enough
+          // times to fill an interior gap. In backfill we instead rely on
+          // maxStableRounds to bound the loop.
+          if (!job.backfill && oldestBrowserTs !== null && oldestBrowserTs < cutoffTs) break;
+
+          // Early stop: if the browser store now contains messages older than
+          // our newest stored record, we've fully covered the gap — no need to
+          // paginate further back.
+          if (newestStoredTs !== null && oldestBrowserTs !== null && oldestBrowserTs <= newestStoredTs) break;
         }
 
-        const oldestBrowserTs = stats.oldestTs;
+        // ── Phase 2: retrieve all messages now in the store ────────────────
+        gp.status = "processing";
+        // NB: deliberately NOT client.getChatById() here. For groups that path
+        // builds the full Chat model — groupMetadata.update() (a network fetch),
+        // @lid participant remapping, groupMetadata.serialize() — none of which
+        // we use, and any of which throws a minified "r: r" for groups whose
+        // metadata can't be resolved (left/announcement/community groups),
+        // failing the whole sync. fetchGroupMessages reads messages via the
+        // lightweight getChat({ getAsModel: false }) path instead.
+        let messages: Message[];
+        try {
+          // The cutoff is applied inside the browser: the store can hold 10k
+          // messages going back years, and serializing all of them across CDP
+          // just to drop most of them in Node was the bulk of Phase 2's cost.
+          messages = await fetchGroupMessages(
+            client,
+            gp.jid,
+            Math.max(loadedCount, 1),
+            cutoffTs
+          );
+        } catch (err) {
+          throw new Error(`fetchGroupMessages failed: ${errText(err)}`);
+        }
 
-        // Early stop: browser has gone back past the cutoff. Suppressed in
-        // backfill mode: the store usually already spans further back than the
-        // window (from prior syncs), so this would break on the first
-        // iteration and never let the protocol history-sync re-fire enough
-        // times to fill an interior gap. In backfill we instead rely on
-        // maxStableRounds to bound the loop.
-        if (!job.backfill && oldestBrowserTs !== null && oldestBrowserTs < cutoffTs) break;
+        // Everything we already hold in this window, and whether its media file
+        // landed. Lets us skip a message before paying for its media — including
+        // messages newer than newestStoredTs, which the live listener has usually
+        // already stored and which the timestamp cursor alone re-downloaded on
+        // every run.
+        const stored = getStoredMediaState(gp.jid, cutoffTs);
 
-        // Early stop: if the browser store now contains messages older than
-        // our newest stored record, we've fully covered the gap — no need to
-        // paginate further back.
-        if (newestStoredTs !== null && oldestBrowserTs !== null && oldestBrowserTs <= newestStoredTs) break;
-      }
+        // Collect first, then download media in parallel. Serial downloads made
+        // Phase 2 scale with (media count x round-trip latency).
+        const pending: { msg: Message; id: string; body: string | null }[] = [];
+        for (const msg of messages) {
+          if (msg.timestamp < cutoffTs) continue;
+          if (newestStoredTs !== null && msg.timestamp < newestStoredTs) continue;
 
-      // ── Phase 2: retrieve all messages now in the store ────────────────
-      gp.status = "processing";
-      // NB: deliberately NOT client.getChatById() here. For groups that path
-      // builds the full Chat model — groupMetadata.update() (a network fetch),
-      // @lid participant remapping, groupMetadata.serialize() — none of which
-      // we use, and any of which throws a minified "r: r" for groups whose
-      // metadata can't be resolved (left/announcement/community groups),
-      // failing the whole sync. fetchGroupMessages reads messages via the
-      // lightweight getChat({ getAsModel: false }) path instead.
-      let messages: Message[];
-      try {
-        // The cutoff is applied inside the browser: the store can hold 10k
-        // messages going back years, and serializing all of them across CDP
-        // just to drop most of them in Node was the bulk of Phase 2's cost.
-        messages = await fetchGroupMessages(
-          client,
-          gp.jid,
-          Math.max(loadedCount, 1),
-          cutoffTs
-        );
-      } catch (err) {
-        throw new Error(`fetchGroupMessages failed: ${errText(err)}`);
-      }
+          const body = msg.body || null;
+          if (!body && !msg.hasMedia) continue;
 
-      // Everything we already hold in this window, and whether its media file
-      // landed. Lets us skip a message before paying for its media — including
-      // messages newer than newestStoredTs, which the live listener has usually
-      // already stored and which the timestamp cursor alone re-downloaded on
-      // every run.
-      const stored = getStoredMediaState(gp.jid, cutoffTs);
+          const serializedId = ensureSerializedId(msg) ?? msg.id._serialized;
+          if (!serializedId) continue;
 
-      // Collect first, then download media in parallel. Serial downloads made
-      // Phase 2 scale with (media count x round-trip latency).
-      const pending: { msg: Message; id: string; body: string | null }[] = [];
-      for (const msg of messages) {
-        if (msg.timestamp < cutoffTs) continue;
-        if (newestStoredTs !== null && msg.timestamp < newestStoredTs) continue;
+          // Already stored — skip, unless it is a media message whose file never
+          // made it to disk. Re-running those is the recovery path: the upsert in
+          // insertMessage() COALESCEs the media columns back in.
+          if (stored.has(serializedId) && (!msg.hasMedia || stored.get(serializedId)))
+            continue;
 
-        const body = msg.body || null;
-        if (!body && !msg.hasMedia) continue;
+          pending.push({ msg, id: serializedId, body });
+        }
 
-        const serializedId = ensureSerializedId(msg) ?? msg.id._serialized;
-        if (!serializedId) continue;
-
-        // Already stored — skip, unless it is a media message whose file never
-        // made it to disk. Re-running those is the recovery path: the upsert in
-        // insertMessage() COALESCEs the media columns back in.
-        if (stored.has(serializedId) && (!msg.hasMedia || stored.get(serializedId)))
-          continue;
-
-        pending.push({ msg, id: serializedId, body });
-      }
-
-      const media = new Map<string, Awaited<ReturnType<typeof downloadAndSave>>>();
-      const withMedia = pending.filter((p) => p.msg.hasMedia);
-      let cursor = 0;
-      await Promise.all(
-        Array.from(
-          { length: Math.min(MEDIA_CONCURRENCY, withMedia.length) },
-          async () => {
-            while (cursor < withMedia.length) {
-              const { msg, id } = withMedia[cursor++];
-              try {
-                media.set(id, await downloadAndSave(msg));
-              } catch (err) {
-                console.error(`[whatsapp] media download failed for ${id}:`, err);
+        const media = new Map<string, Awaited<ReturnType<typeof downloadAndSave>>>();
+        const withMedia = pending.filter((p) => p.msg.hasMedia);
+        let cursor = 0;
+        await Promise.all(
+          Array.from(
+            { length: Math.min(MEDIA_CONCURRENCY, withMedia.length) },
+            async () => {
+              while (cursor < withMedia.length) {
+                const { msg, id } = withMedia[cursor++];
+                try {
+                  media.set(id, await downloadAndSave(msg));
+                } catch (err) {
+                  console.error(`[whatsapp] media download failed for ${id}:`, err);
+                }
               }
             }
+          )
+        );
+
+        for (const { msg, id, body } of pending) {
+          const mediaResult = media.get(id) ?? null;
+          const effectiveBody =
+            body ?? (mediaResult ? `[${mediaResult.media_type}]` : `[${msg.type}]`);
+
+          try {
+            insertMessage({
+              id,
+              jid: gp.jid,
+              sender: msg.author ?? msg.from,
+              body: effectiveBody,
+              ts: msg.timestamp,
+              media_type: mediaResult?.media_type ?? null,
+              media_mime: mediaResult?.media_mime ?? null,
+              media_filename: mediaResult?.media_filename ?? null,
+              media_path: mediaResult?.media_path ?? null,
+            });
+          } catch {
+            /* duplicate — ignore */
           }
-        )
-      );
-
-      for (const { msg, id, body } of pending) {
-        const mediaResult = media.get(id) ?? null;
-        const effectiveBody =
-          body ?? (mediaResult ? `[${mediaResult.media_type}]` : `[${msg.type}]`);
-
-        try {
-          insertMessage({
-            id,
-            jid: gp.jid,
-            sender: msg.author ?? msg.from,
-            body: effectiveBody,
-            ts: msg.timestamp,
-            media_type: mediaResult?.media_type ?? null,
-            media_mime: mediaResult?.media_mime ?? null,
-            media_filename: mediaResult?.media_filename ?? null,
-            media_path: mediaResult?.media_path ?? null,
-          });
-        } catch {
-          /* duplicate — ignore */
         }
-      }
 
-      gp.messagesReceived = countAllMessages(gp.jid);
-      gp.mediaDownloaded = countAllMedia(gp.jid);
-      gp.status = "done";
-    } catch (err) {
-      gp.status = "error";
-      gp.error = errText(err);
+        gp.messagesReceived = countAllMessages(gp.jid);
+        gp.mediaDownloaded = countAllMedia(gp.jid);
+        gp.newMessages = gp.messagesReceived - before.messages;
+        gp.newMedia = gp.mediaDownloaded - before.media;
+        gp.status = "done";
+        break;
+      } catch (err) {
+        if (attempt === 0 && !job.reconnected && isDeadPage(err)) {
+          job.reconnected = true;
+          console.warn("[whatsapp] dead page during sync — restarting the client");
+          try {
+            client = await restartClient();
+            continue;
+          } catch (restartErr) {
+            gp.status = "error";
+            gp.error = `${errText(err)}\n\nReconnect failed: ${errText(restartErr)}`;
+            break;
+          }
+        }
+        gp.status = "error";
+        gp.error = errText(err);
+        break;
+      }
     }
   }
 

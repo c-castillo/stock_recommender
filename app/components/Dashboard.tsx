@@ -183,7 +183,15 @@ export default function Dashboard() {
 
   const loadSavedRecs = useCallback(async () => {
     const res = await fetch("/api/recommendations").catch(() => null);
-    if (res?.ok) { const d = await res.json(); if (d.recommendations?.length) setAiRecs(d.recommendations); }
+    if (!res?.ok) return;
+    const d = await res.json();
+    if (d.recommendations?.length) setAiRecs(d.recommendations);
+    // A report published by /daily-run arrives here rather than over the
+    // Analyze stream — show it the same way.
+    if (typeof d.narrative === "string" && d.narrative) {
+      setAnalysisText(d.narrative);
+      setAnalysisState("done");
+    }
   }, []);
 
   useEffect(() => {

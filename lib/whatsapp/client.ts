@@ -11,6 +11,7 @@ import { Client, LocalAuth, type Message } from "whatsapp-web.js";
 import path from "path";
 import os from "os";
 import fs from "fs";
+import { execFileSync } from "child_process";
 import { upsertGroups, insertMessage, listGroups } from "./db";
 import { downloadAndSave } from "./media";
 import { ensureSerializedId } from "./msg-id";
@@ -238,17 +239,65 @@ async function startClient(): Promise<void> {
   });
 }
 
+/**
+ * Kill the automation browser for THIS session if it outlived its client.
+ *
+ * destroy() can resolve (or throw) without the headless Chrome actually
+ * exiting — typically after WhatsApp Web reloaded underneath puppeteer — and
+ * the survivor keeps the profile's SingletonLock, so the next connect() fails
+ * with "The browser is already running for …/session". Matching on the
+ * --user-data-dir flag targets only our own headless browser, never the
+ * user's Chrome.
+ */
+function killSessionBrowser(pid: number | null | undefined): void {
+  if (pid) {
+    try { process.kill(pid, "SIGKILL"); } catch { /* already gone */ }
+  }
+  try {
+    execFileSync("pkill", ["-9", "-f", "--", `--user-data-dir=${path.join(SESSION_DIR, "session")}`], {
+      stdio: "ignore",
+    });
+  } catch {
+    /* pkill exits 1 when nothing matched */
+  }
+}
+
 /** Disconnect and destroy the browser. Does not wipe the session.
  *  Awaits the browser's exit: a connect() right after would otherwise find the
  *  session dir still locked ("The browser is already running for …"). */
 export async function disconnect(): Promise<void> {
+  const old = store.wClient;
+  const pid = old?.pupBrowser?.process()?.pid;
+  store.wClient = null;
   try {
-    await store.wClient?.destroy();
+    if (old) await withTimeout(old.destroy(), 15_000);
   } catch {
     /* ignore */
   }
-  store.wClient = null;
+  if (old) killSessionBrowser(pid);
   store.state = { status: "disconnected", qr: null, error: null };
+}
+
+/**
+ * Tear the client down and bring it back on the saved session, resolving once
+ * it is connected again. Used by the sync job when WhatsApp Web reloaded inside
+ * the headless browser: status still reads "connected" but every page call
+ * throws "Attempted to use detached Frame". The session is on disk, so this
+ * needs no QR — if one is asked for anyway, it rejects rather than wait.
+ */
+export async function restartClient(timeoutMs = 120_000): Promise<Client> {
+  await disconnect();
+  await new Promise((r) => setTimeout(r, 1_000)); // let the profile lock clear
+  await connect();
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const { status, error } = store.state;
+    if (status === "connected" && store.wClient) return store.wClient;
+    if (status === "qr_ready") throw new Error("WhatsApp pide un QR nuevo — escanéalo en el dashboard");
+    if (status === "disconnected") throw new Error(`No se pudo reconectar WhatsApp: ${error ?? "desconocido"}`);
+    await new Promise((r) => setTimeout(r, 1_000));
+  }
+  throw new Error(`WhatsApp no reconectó en ${Math.round(timeoutMs / 1000)} s`);
 }
 
 /** Destroy the browser, wipe saved credentials, and reset state so the next

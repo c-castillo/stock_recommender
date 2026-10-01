@@ -248,7 +248,14 @@ export function updateWikiEntry(
     fs.writeFileSync(filePath, `${heading}\n\n${entry}\n`, "utf-8");
   } else {
     // Append new entry after existing content
-    const existing = fs.readFileSync(filePath, "utf-8");
+    let existing = fs.readFileSync(filePath, "utf-8");
+    // A second publish on the same day replaces that day's entry instead of
+    // stacking a duplicate. Only when it is the last entry — entries are
+    // appended in date order, so anything else is left alone.
+    const sameDay = existing.lastIndexOf(`\n## ${date}\n`);
+    if (sameDay !== -1 && !existing.slice(sameDay + 1).includes("\n## ")) {
+      existing = existing.slice(0, sameDay).trimEnd() + "\n";
+    }
     fs.writeFileSync(filePath, `${existing}\n${entry}\n`, "utf-8");
   }
 }

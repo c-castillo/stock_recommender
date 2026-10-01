@@ -143,13 +143,27 @@ function indent(v: string): string {
   return v.split("\n").map((l) => `      ${l}`).join("\n");
 }
 
+export interface MediaDigestRenderOptions {
+  /**
+   * Unix seconds. Verbatim transcripts are printed only for media at or after
+   * this time; older files keep their summary, levels and study lines. A daily
+   * run has already read the older transcripts in full, and they were 45% of a
+   * 7-day bundle (200K of 446K characters on 2026-09-30).
+   */
+  transcriptSince?: number;
+}
+
 /** Render the cached media digests (Stage 1 output) as a compact text section. */
-export function renderMediaDigestBlock(rows: MessageForAnalysis[]): string {
+export function renderMediaDigestBlock(
+  rows: MessageForAnalysis[],
+  opts: MediaDigestRenderOptions = {}
+): string {
   if (rows.length === 0) return "";
 
   let text = `## Media compartida (resúmenes — ${rows.length} archivos)\n`;
   let demarkSeen = 0;
   let fibSeen = 0;
+  let transcriptsOmitted = 0;
   for (const r of rows) {
     let d: {
       ticker?: string | null;
@@ -186,8 +200,17 @@ export function renderMediaDigestBlock(rows: MessageForAnalysis[]): string {
     // summary above compresses it to a sentence, so the words themselves
     // follow, indented under their entry.
     if (d.transcript) {
-      text += `    ✎ Texto (transcripción literal):\n${indent(clampTranscript(d.transcript))}\n`;
+      if (opts.transcriptSince != null && r.ts < opts.transcriptSince) {
+        transcriptsOmitted++;
+      } else {
+        text += `    ✎ Texto (transcripción literal):\n${indent(clampTranscript(d.transcript))}\n`;
+      }
     }
+  }
+  if (transcriptsOmitted > 0) {
+    text +=
+      `\n> ${transcriptsOmitted} older file(s) above have a verbatim transcript that is not printed ` +
+      "here (summary only). Call `media_digests` with the wider window if you need the exact text.\n";
   }
   if (fibSeen > 0) {
     text +=

@@ -16,7 +16,9 @@ export async function POST(request: Request) {
   ) {
     return Response.json({ error: "total_value, market_value, cash_balance requeridos" }, { status: 400 });
   }
-  const date: string = body.date ?? new Date().toISOString().slice(0, 10);
+  // Local date: toISOString() is UTC, which files an evening snapshot in Chile
+  // under tomorrow.
+  const date: string = body.date ?? new Date().toLocaleDateString("en-CA");
   upsertPortfolioSnapshot({ date, total_value: body.total_value, market_value: body.market_value, cash_balance: body.cash_balance });
   return Response.json({ ok: true, date });
 }
