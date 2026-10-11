@@ -123,6 +123,17 @@ produced nothing. So:
   he adds one by voice, image or chat rather than `+TICKER`, persist it with
   `record_main_analyst_add`, with `invalidation` if he named a level — editing a past
   report does nothing, the ledger is what gets injected into every future run.
+- **A new position does not need a main analyst ADD.** The playbook's RESEARCH BUY is
+  the second buy signal: a dated bullish report from this session (broker
+  note, print, argued thesis) plus chart confirmation (rising MA200, uptrend,
+  RRG Leading or Improving). When both hold, be bold: recommend opening it as
+  a BUY with shares and $ at the live price, at the low end of the size range,
+  with a stop under the level that breaks the setup, and the trim that funds
+  it if concentration needs one. Don't leave it as "HOLD (watch)" for lack of
+  an ADD. It never goes in the ledger (`record_main_analyst_add` is for the main analyst only)
+  and gets no MA200 override. Before relying on a note the digester read only
+  in its first pages, open the PDF and read the pages the call depends on —
+  this counts toward your extra lookups.
 - **You are not writing to the app's stores.** The caller publishes your
   report and JSON (`/daily-run` step 4), which updates the stored
   recommendations, the dashboard's narrative and the per-ticker wiki. From
