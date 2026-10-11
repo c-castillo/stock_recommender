@@ -22,8 +22,9 @@ import {
   countAllMedia,
   upsertGroup,
   insertMessage,
-  getNewestMessage,
   getStoredMediaState,
+  getKv,
+  setKv,
 } from "./db";
 import { downloadAndSave } from "./media";
 import { ensureSerializedId } from "./msg-id";
@@ -108,6 +109,11 @@ export interface GroupProgress {
   newMessages: number;
   newMedia: number;
   page: number;
+  /** Set when history paging stopped before reaching the point the previous
+   *  sync had covered: messages may be missing in between. The cursor is left
+   *  where it was, so the next sync retries the same stretch; a backfill run
+   *  is the stronger remedy. */
+  gap?: boolean;
   error?: string;
 }
 
@@ -227,6 +233,29 @@ const SYNC_DAYS = 7;
 /** wider window used for backfill runs */
 const BACKFILL_DAYS = 14;
 
+// ── Sync cursor ───────────────────────────────────────────────────────────────
+
+/**
+ * Per-group high-water mark: the timestamp of the newest message a *sync job*
+ * has covered with contiguous history behind it.
+ *
+ * This used to be "the newest stored message", which the live `message_create`
+ * listener also writes. After the process had been down, the listener stored a
+ * fresh message on reconnect, the cursor jumped to it, and the job concluded
+ * the whole offline stretch was already held: it reported 0 new messages and
+ * skipped a day. Only a completed sync may move the cursor.
+ */
+const cursorKey = (jid: string) => `wa_sync_cursor:${jid}`;
+
+function getSyncCursor(jid: string): number | null {
+  const ts = Number(getKv(cursorKey(jid)));
+  return Number.isFinite(ts) && ts > 0 ? ts : null;
+}
+
+function setSyncCursor(jid: string, ts: number) {
+  setKv(cursorKey(jid), String(ts));
+}
+
 // ── Internal runner ───────────────────────────────────────────────────────────
 
 /**
@@ -272,12 +301,15 @@ async function runJob(job: SyncJob) {
         // Hard cutoff: only sync the last `windowDays` days (unix seconds).
         const cutoffTs = Math.floor(Date.now() / 1000) - windowDays * 86400;
 
-        // Cursor: timestamp of the newest message already stored for this group.
-        // Used to stop the pagination loop once the browser has loaded messages
-        // older than what we already have, and to skip processing known messages.
-        // Suppressed in backfill mode so the full window is re-scanned for gaps.
-        const newestStored = getNewestMessage(gp.jid);
-        const newestStoredTs = job.backfill ? null : (newestStored?.ts ?? null);
+        // Cursor: how far the previous sync job got (see getSyncCursor — not
+        // the newest stored message, which the live listener can advance past
+        // a gap). Used to stop the pagination loop once the browser has loaded
+        // back to that point, and to skip messages older than it. With no
+        // cursor yet the whole window is scanned. Suppressed in backfill mode
+        // so the full window is re-scanned for gaps.
+        const savedCursorTs = getSyncCursor(gp.jid);
+        const cursorTs = job.backfill ? null : savedCursorTs;
+        gp.gap = false;
 
         await ensureStoreShim(client);
 
@@ -295,6 +327,9 @@ async function runJob(job: SyncJob) {
         // ── Phase 1: load history into the browser store ────────────────────
         let loadedCount = (await getChatStats(client, gp.jid)).count;
         let stableRounds = 0;
+        // Oldest message the browser store reached, to tell afterwards whether
+        // paging got back to the cursor or gave up short of it.
+        let oldestReachedTs: number | null = null;
         const maxStableRounds = job.backfill ? MAX_STABLE_ROUNDS_BACKFILL : MAX_STABLE_ROUNDS;
 
         while (loadedCount < MAX_MESSAGES && stableRounds < maxStableRounds && gp.page < MAX_PAGES) {
@@ -318,6 +353,7 @@ async function runJob(job: SyncJob) {
           }
 
           const oldestBrowserTs = stats.oldestTs;
+          if (oldestBrowserTs !== null) oldestReachedTs = oldestBrowserTs;
 
           // Early stop: browser has gone back past the cutoff. Suppressed in
           // backfill mode: the store usually already spans further back than the
@@ -327,10 +363,24 @@ async function runJob(job: SyncJob) {
           // maxStableRounds to bound the loop.
           if (!job.backfill && oldestBrowserTs !== null && oldestBrowserTs < cutoffTs) break;
 
-          // Early stop: if the browser store now contains messages older than
-          // our newest stored record, we've fully covered the gap — no need to
+          // Early stop: if the browser store now reaches back to where the
+          // previous sync ended, we've fully covered the gap — no need to
           // paginate further back.
-          if (newestStoredTs !== null && oldestBrowserTs !== null && oldestBrowserTs <= newestStoredTs) break;
+          if (cursorTs !== null && oldestBrowserTs !== null && oldestBrowserTs <= cursorTs) break;
+        }
+
+        // Paging ran out (no growth, page or message cap) before reaching the
+        // cursor, and the cursor is still inside the window: whatever lies
+        // between was not loaded. Flag it and keep the cursor where it was.
+        if (
+          cursorTs !== null &&
+          cursorTs >= cutoffTs &&
+          (oldestReachedTs === null || oldestReachedTs > cursorTs)
+        ) {
+          gp.gap = true;
+          console.warn(
+            `[whatsapp] ${gp.name}: history paging stopped before the sync cursor — possible gap`
+          );
         }
 
         // ── Phase 2: retrieve all messages now in the store ────────────────
@@ -359,7 +409,7 @@ async function runJob(job: SyncJob) {
 
         // Everything we already hold in this window, and whether its media file
         // landed. Lets us skip a message before paying for its media — including
-        // messages newer than newestStoredTs, which the live listener has usually
+        // messages newer than cursorTs, which the live listener has usually
         // already stored and which the timestamp cursor alone re-downloaded on
         // every run.
         const stored = getStoredMediaState(gp.jid, cutoffTs);
@@ -369,7 +419,7 @@ async function runJob(job: SyncJob) {
         const pending: { msg: Message; id: string; body: string | null }[] = [];
         for (const msg of messages) {
           if (msg.timestamp < cutoffTs) continue;
-          if (newestStoredTs !== null && msg.timestamp < newestStoredTs) continue;
+          if (cursorTs !== null && msg.timestamp < cursorTs) continue;
 
           const body = msg.body || null;
           if (!body && !msg.hasMedia) continue;
@@ -425,6 +475,15 @@ async function runJob(job: SyncJob) {
           } catch {
             /* duplicate — ignore */
           }
+        }
+
+        // Advance the cursor to the newest message this run saw, unless it
+        // left a gap behind. A backfill only ever moves it forward too: it
+        // re-scans the window but gives no stronger guarantee of contiguity.
+        if (!gp.gap) {
+          let newestSeenTs = savedCursorTs ?? 0;
+          for (const m of messages) if (m.timestamp > newestSeenTs) newestSeenTs = m.timestamp;
+          if (newestSeenTs > 0 && newestSeenTs !== savedCursorTs) setSyncCursor(gp.jid, newestSeenTs);
         }
 
         gp.messagesReceived = countAllMessages(gp.jid);

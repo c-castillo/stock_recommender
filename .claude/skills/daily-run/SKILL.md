@@ -85,7 +85,12 @@ Report the diff in one or two lines and pass it to the analyst in step 3.
      `--user-data-dir=<home>/.stock-recommender-wa/session`, then connect
      again. The session is on disk, so no QR is needed.
    - Retry the sync once. If it fails again, stop and show the error.
-6. Report `newMessages` and `newMedia` per group — what this sync added.
+6. **Check for holes.** A group with `gap: true` stopped paging before it
+   reached the point the previous sync had covered, so messages may be missing
+   in between: run the job again with `"backfill": true` (14 days) and report
+   it. Do the same when step 0 had to start the dashboard and a group still
+   shows `newMessages: 0` on a trading day.
+7. Report `newMessages` and `newMedia` per group — what this sync added.
    `messagesReceived` and `mediaDownloaded` are the group's running totals, not
    the day's intake. The live listener stores messages as they arrive, so a
    small number here does not mean a quiet day.
