@@ -39,6 +39,13 @@ before the close cannot decide a stop that waits for a close.
 `pnpm dev` with `run_in_background: true` and wait (Monitor with an until-loop
 on that curl) until it does.
 
+Then `python3 scripts/mcp-smoke.py`: it starts the MCP server from the code on
+disk and calls the tools the run depends on. If it fails, stop: the analysis
+cannot be built. If it passes but this session has no `mcp__stock-recommender__*`
+tools (the session's own connection is down or older than the code), tell both
+agents to use the shell bridge, `python3 scripts/mcp-call.py`, described in
+their instructions, and say so in the report.
+
 ## 1. Zesty portfolio
 
 1. Baseline = the book as of the last published report: the newest

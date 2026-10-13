@@ -79,6 +79,21 @@ as relevant.
 7. If a file cannot be read (missing, unsupported format), do not invent a
    digest. Skip it and list it in your report.
 
+## If the MCP tools are missing
+
+A session keeps the MCP server it started with; after a restart of that server
+or a change to its tools, `mcp__stock-recommender__*` can be absent. The same
+tools are then called from the shell, with the same names and arguments:
+
+    python3 scripts/mcp-call.py --list
+    python3 scripts/mcp-call.py <tool> '<json arguments>'
+    python3 scripts/mcp-call.py <tool> @/path/to/arguments.json
+    python3 scripts/mcp-call.py analysis_bundle '{"fullDetailDays": 2}' --out <file>
+
+Put arguments with quotes or newlines (a digest, a transcript) in a JSON file
+in your scratchpad and pass it with `@`. Say in your report that you used the
+shell bridge.
+
 ## When to stop
 
 Digest at most 30 files per run, newest first, then stop and report — the
