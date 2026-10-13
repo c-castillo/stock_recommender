@@ -1,9 +1,19 @@
-import { listPortfolio, upsertPosition, deletePosition, getCashBalance } from "@/lib/whatsapp/db";
+import {
+  listPortfolio,
+  upsertPosition,
+  deletePosition,
+  getCashBalance,
+  getBuyingPower,
+} from "@/lib/whatsapp/db";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  return Response.json({ positions: listPortfolio(), cash_balance: getCashBalance() });
+  return Response.json({
+    positions: listPortfolio(),
+    cash_balance: getCashBalance(),
+    buying_power: getBuyingPower(),
+  });
 }
 
 export async function POST(request: Request) {

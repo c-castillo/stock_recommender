@@ -720,6 +720,17 @@ export function getCashBalance(): number | null {
   return isNaN(n) ? null : n;
 }
 
+/** Cash free for a new order (total cash less what open buy orders reserve).
+ *  Null until a Zesty sync has reported it. */
+export function setBuyingPower(amount: number | null) {
+  setKv("buying_power", amount == null ? "" : String(amount));
+}
+
+export function getBuyingPower(): number | null {
+  const n = parseFloat(getKv("buying_power") ?? "");
+  return isNaN(n) ? null : n;
+}
+
 // ── Portfolio goal ────────────────────────────────────────────────────────────
 
 export interface PortfolioGoal {
@@ -780,6 +791,24 @@ export function getPerformanceAnchor(): PerformanceAnchor | null {
     .get() as { value: string } | undefined;
   if (!row) return null;
   try { return JSON.parse(row.value) as PerformanceAnchor; } catch { return null; }
+}
+
+/**
+ * The highest total value seen since the anchor was taken. The anchor's own
+ * peak is frozen at its refresh date, so a later high was only "the peak" on
+ * the day it happened and the drawdown was measured from the old one after.
+ */
+export function getRecordedPeak(): { date: string; value: number } | null {
+  try {
+    const p = JSON.parse(getKv("portfolio_peak") ?? "null");
+    return p && typeof p.value === "number" && typeof p.date === "string" ? p : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setRecordedPeak(peak: { date: string; value: number }) {
+  setKv("portfolio_peak", JSON.stringify(peak));
 }
 
 // ── Analysis result cache ─────────────────────────────────────────────────────

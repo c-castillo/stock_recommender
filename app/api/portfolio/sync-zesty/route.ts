@@ -2,6 +2,8 @@ import { fetchZestyData } from "@/lib/zesty/portfolio";
 import {
   upsertPosition,
   setCashBalance,
+  setBuyingPower,
+  getBuyingPower,
   clearPortfolio,
   listPortfolio,
   getCashBalance,
@@ -14,10 +16,12 @@ export const dynamic = "force-dynamic";
 export async function POST() {
   let raw: unknown[];
   let cashBalance: number | null = null;
+  let buyingPower: number | null = null;
   try {
     const data = await fetchZestyData();
     raw = data.positions;
     cashBalance = data.cashBalance;
+    buyingPower = data.buyingPower;
   } catch (err) {
     return Response.json(
       { error: err instanceof Error ? err.message : "Error al conectar con Zesty" },
@@ -49,6 +53,7 @@ export async function POST() {
   }
 
   if (cashBalance !== null) setCashBalance(cashBalance);
+  if (cashBalance !== null || buyingPower !== null) setBuyingPower(buyingPower);
 
   // Record today's total here rather than leaving it to the dashboard page:
   // that only wrote a row while a browser tab was open, so days synced from
@@ -76,6 +81,7 @@ export async function POST() {
   return Response.json({
     imported: positions.length,
     cash_balance: cashBalance ?? getCashBalance(),
+    buying_power: getBuyingPower(),
     positions: listPortfolio(),
     performance_anchor: anchor
       ? { asOf: anchor.asOf, flows: anchor.flows.length, lastFlowDate: lastFlow ?? null }

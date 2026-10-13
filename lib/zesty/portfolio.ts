@@ -15,7 +15,10 @@ import puppeteer from "puppeteer";
 
 export interface ZestyData {
   positions: unknown[];
+  /** Total cash, including what open buy orders have reserved. */
   cashBalance: number | null;
+  /** Cash free for a new order: total cash less open buy orders. */
+  buyingPower: number | null;
 }
 
 export async function fetchZestyData(): Promise<ZestyData> {
@@ -45,6 +48,7 @@ export async function fetchZestyData(): Promise<ZestyData> {
     // all redirects and the final SPA load.
     let capturedPositions: unknown[] | null = null;
     let capturedBalance: number | null = null;
+    let capturedBuyingPower: number | null = null;
     const observedApiUrls: string[] = [];
 
     page.on("response", async (res) => {
@@ -59,11 +63,15 @@ export async function fetchZestyData(): Promise<ZestyData> {
         }
         if (url.includes("/api/accounts/balance") && capturedBalance === null) {
           const json = (await res.json()) as Record<string, unknown>;
-          const raw =
-            json?.buyingPower ??
-            (json?.data as Record<string, unknown> | undefined)?.buyingPower;
-          const n = parseFloat(String(raw));
-          if (!isNaN(n)) capturedBalance = n;
+          const body = (json?.data as Record<string, unknown> | undefined) ?? json;
+          // An open buy order lowers buyingPower but not cash. Book value needs
+          // cash; a new order needs buyingPower. Reading only buyingPower made
+          // the book look $574 poorer for as long as a limit order was working.
+          const power = parseFloat(String(body?.buyingPower));
+          const total = parseFloat(String(body?.cash));
+          if (!isNaN(power)) capturedBuyingPower = power;
+          if (!isNaN(total)) capturedBalance = total;
+          else if (!isNaN(power)) capturedBalance = power;
         }
       } catch {
         // ignore non-JSON / already-consumed responses
@@ -194,7 +202,11 @@ export async function fetchZestyData(): Promise<ZestyData> {
       });
     }
 
-    return { positions: capturedPositions, cashBalance: capturedBalance };
+    return {
+      positions: capturedPositions,
+      cashBalance: capturedBalance,
+      buyingPower: capturedBuyingPower,
+    };
   } finally {
     await browser.close();
   }

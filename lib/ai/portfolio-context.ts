@@ -7,10 +7,10 @@
  * portfolio context to the in-app pipeline.
  */
 
-import { listPortfolio, getCashBalance, listActiveMainAnalystAdds } from "@/lib/whatsapp/db";
+import { listPortfolio, getCashBalance, getBuyingPower, listActiveMainAnalystAdds } from "@/lib/whatsapp/db";
 import { fetchMa200Slopes } from "@/lib/ma200";
 import { fetchCurrentPrices } from "@/lib/market/quotes";
-import { SECTORS, DEFENSIVE_LONGS, type SectorId } from "@/lib/market/sectors";
+import { SECTORS, DEFENSIVE_LONGS, HEDGE_LEVERAGE, type SectorId } from "@/lib/market/sectors";
 import { classifyTickers, classificationLabel } from "@/lib/market/classify";
 import { fetchRrg, heading, type RrgPoint } from "@/lib/market/rrg";
 import { fetchPerformance, renderPerformance } from "@/lib/market/performance";
@@ -37,11 +37,13 @@ export async function buildPortfolioContext(): Promise<string> {
   // lands in the exposure table by its real profile instead of the model's guess.
   const classes = await classifyTickers([...portfolioTickers, ...activeAdds.map((a) => a.ticker)]);
   const sectorOf = (t: string): SectorId | null => classes[t.toUpperCase()]?.sector ?? null;
+  const isHedge = (t: string) => HEDGE_LEVERAGE[t.toUpperCase()] != null;
+  const longs = positions.filter((p) => !isHedge(p.ticker));
 
   // Benchmarks and hedge instruments for every sector actually held, fetched
   // alongside the holdings so hedge sizing prices the present like entries do.
   const heldSectors = [
-    ...new Set(positions.map((p) => sectorOf(p.ticker)).filter((s): s is SectorId => s !== null)),
+    ...new Set(longs.map((p) => sectorOf(p.ticker)).filter((s): s is SectorId => s !== null)),
   ];
   const benchmarks = [...new Set(heldSectors.map((id) => SECTORS[id].benchmark))];
   const hedgeTickers = [
@@ -65,9 +67,9 @@ export async function buildPortfolioContext(): Promise<string> {
     // Each holding against its own sector benchmark: who leads and who lags
     // inside the same correlated bet.
     Promise.all(
-      [...new Set(positions.map((p) => sectorOf(p.ticker)).filter((s): s is SectorId => s !== null))].map((id) =>
+      heldSectors.map((id) =>
         fetchRrg(
-          positions.filter((p) => sectorOf(p.ticker) === id).map((p) => p.ticker),
+          longs.filter((p) => sectorOf(p.ticker) === id).map((p) => p.ticker),
           SECTORS[id].benchmark
         )
       )
@@ -77,10 +79,22 @@ export async function buildPortfolioContext(): Promise<string> {
   let section = "\n## Portfolio\n";
 
   if (cash !== null) {
-    section += `Cash: $${cash.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n`;
+    const money = (n: number) =>
+      `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    // Open buy orders reserve cash: it still counts in the book's value, but a
+    // new order can only spend what is left.
+    const free = getBuyingPower();
+    const reserved = free != null ? cash - free : 0;
+    section +=
+      `Cash: ${money(cash)}` +
+      (reserved > 0.5
+        ? ` — ${money(free!)} free for new orders, ${money(reserved)} reserved by open buy orders`
+        : "") +
+      "\n";
   }
 
   const exposure = new Map<SectorId | null, number>();
+  const hedges: HeldHedge[] = [];
   let marketValueTotal = 0;
 
   if (positions.length > 0) {
@@ -108,14 +122,19 @@ export async function buildPortfolioContext(): Promise<string> {
         ? `$${pnl.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}(${pnlPc != null ? pnlPc.toFixed(1) + "%" : "—"})`
         : "—";
       const sector = sectorOf(p.ticker);
+      const leverage = HEDGE_LEVERAGE[p.ticker.toUpperCase()];
       if (mktVal != null) {
-        exposure.set(sector, (exposure.get(sector) ?? 0) + mktVal);
         marketValueTotal += mktVal;
+        if (leverage != null) hedges.push({ ticker: p.ticker, leverage, shares: p.shares, value: mktVal, pl });
+        else exposure.set(sector, (exposure.get(sector) ?? 0) + mktVal);
       }
-      const sectorStr = classificationLabel(classes[p.ticker.toUpperCase()]);
+      const sectorStr =
+        leverage != null
+          ? `Hedge (-${leverage}x inverse ETF)`
+          : classificationLabel(classes[p.ticker.toUpperCase()]);
       section += `${p.ticker}|${sectorStr}|${p.shares}|${avgCost}|${price}|${mv}|${pl}|${slopeText(slopes[p.ticker])}\n`;
     }
-    section += renderSectorExposure(exposure, cash ?? 0, slopes, marketPrices);
+    section += renderSectorExposure(exposure, hedges, cash ?? 0, slopes, marketPrices);
     section += renderRrg(rrgMarket, rrgHoldings);
     // Live total (market value + cash) is what the money-weighted return needs;
     // the broker's own snapshot lags a day.
@@ -150,19 +169,30 @@ export async function buildPortfolioContext(): Promise<string> {
 }
 
 
+interface HeldHedge {
+  ticker: string;
+  leverage: number;
+  shares: number;
+  value: number;
+  /** P&L since entry, already formatted like the holdings table. */
+  pl: string;
+}
+
 function renderSectorExposure(
   exposure: Map<SectorId | null, number>,
+  held: HeldHedge[],
   cash: number,
   slopes: Record<string, number | null>,
   prices: Record<string, number | null>
 ): string {
   const invested = [...exposure.values()].reduce((a, b) => a + b, 0);
-  const total = invested + cash;
+  const hedgeValue = held.reduce((a, h) => a + h.value, 0);
+  const total = invested + hedgeValue + cash;
   if (invested <= 0 || total <= 0) return "";
 
   const rows = [...exposure.entries()].sort(([, a], [, b]) => b - a);
   let out =
-    "\n## Sector exposure (% of total incl. cash)\n" +
+    "\n## Sector exposure (longs only, % of total incl. cash and hedges)\n" +
     "Sector|Theme|MktVal|%Total|Benchmark|Bench MM200|Long-only hedges (live)\n" +
     "---|---|---|---|---|---|---\n";
 
@@ -197,6 +227,24 @@ function renderSectorExposure(
       (d) => `${d.ticker} ${prices[d.ticker] != null ? `$${prices[d.ticker]!.toFixed(2)}` : "—"} [${d.note}]`
     ).join("; ") +
     "\n";
+
+  if (held.length > 0) {
+    const pct = (v: number) => ((v / total) * 100).toFixed(1) + "%";
+    const short = held.reduce((a, h) => a + h.value * h.leverage, 0);
+    const top = [...themes.entries()].sort(([, a], [, b]) => b - a)[0];
+    out +=
+      "\n## Hedges held (inverse ETFs — short exposure, not in the sector table)\n" +
+      "Ticker|Leverage|Shares|MktVal|%Total|Short exposure|P&L since entry\n---|---|---|---|---|---|---\n" +
+      held
+        .map(
+          (h) =>
+            `${h.ticker}|-${h.leverage}x|${h.shares}|${usd(h.value)}|${pct(h.value)}|${usd(h.value * h.leverage)}|${h.pl}\n`
+        )
+        .join("") +
+      `Capital in hedges ${pct(hedgeValue)} of total · short exposure ${usd(short)} (${pct(short)})` +
+      (top ? ` · ${top[0]} ${pct(top[1])} gross, ${pct(top[1] - short)} net if every hedge is set against it` : "") +
+      "\n";
+  }
 
   return out;
 }

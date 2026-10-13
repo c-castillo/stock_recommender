@@ -116,6 +116,15 @@ export const SECTORS: Record<SectorId, Sector> = {
 };
 
 /**
+ * Inverse ETFs and their leverage. A holding listed here is short exposure:
+ * it is reported as a hedge and kept out of the sector and theme percentages,
+ * where counting it as a long made a hedged book look more concentrated.
+ */
+export const HEDGE_LEVERAGE: Record<string, number> = {
+  SSG: 2, SOXS: 3, PSQ: 1, QID: 2, SQQQ: 3, SH: 1, SDS: 2, BITI: 1, SEF: 1, ERY: 2,
+};
+
+/**
  * Defensive longs that offset an AI-hardware book without leverage decay.
  * Only a hedge when the session's macro read supports them (falling yields for
  * TLT, risk-off for GLD/XLU) — they are not automatically negatively correlated.

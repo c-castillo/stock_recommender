@@ -12,7 +12,13 @@
  * credit June/July deposits with a full year of compounding.
  */
 
-import { getPerformanceAnchor, type PerformanceAnchor } from "@/lib/whatsapp/db";
+import {
+  getPerformanceAnchor,
+  getPortfolioHistory,
+  getRecordedPeak,
+  setRecordedPeak,
+  type PerformanceAnchor,
+} from "@/lib/whatsapp/db";
 
 /** Benchmarks: broad market, the Nasdaq the book's beta comes from, and semis. */
 const BENCHMARKS = ["SPY", "QQQ", "SMH"];
@@ -129,6 +135,28 @@ function shiftMonths(from: Date, months: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * The highest total value on record: the anchor's peak, any higher daily
+ * snapshot taken since the anchor, the stored peak, or today's value. A new
+ * high is stored, so it is still the peak tomorrow. A deposit made after the
+ * anchor raises it too; refreshing the anchor is what corrects for that.
+ */
+function currentPeak(
+  anchor: PerformanceAnchor,
+  currentValue: number,
+  today: string
+): { date: string; value: number } {
+  const recorded = getRecordedPeak();
+  let peak = anchor.peak;
+  if (recorded && recorded.value > peak.value) peak = recorded;
+  for (const h of getPortfolioHistory(400)) {
+    if (h.date > anchor.asOf && h.total_value > peak.value) peak = { date: h.date, value: h.total_value };
+  }
+  if (currentValue > peak.value) peak = { date: today, value: currentValue };
+  if (!recorded || peak.value > recorded.value) setRecordedPeak(peak);
+  return peak;
+}
+
 /** Null when no anchor has been recorded yet — the analysis then says so. */
 export async function fetchPerformance(currentValue: number): Promise<PerformanceReading | null> {
   const anchor = getPerformanceAnchor();
@@ -157,9 +185,7 @@ export async function fetchPerformance(currentValue: number): Promise<Performanc
     benchmarks: benchmarks.get(window) ?? [],
   }));
 
-  const peak = currentValue > anchor.peak.value
-    ? { date: asOf.toISOString().slice(0, 10), value: currentValue }
-    : anchor.peak;
+  const peak = currentPeak(anchor, currentValue, asOf.toISOString().slice(0, 10));
 
   return {
     asOf: asOf.toISOString().slice(0, 10),
