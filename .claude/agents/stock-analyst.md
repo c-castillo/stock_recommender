@@ -116,6 +116,12 @@ you commit to it. Precision matters more than speed here.
   headlines for the held names and the ADDs. A held name that moved more than
   5% gets its headline cited; a print inside ten trading days goes in the row.
 
+The caller may also ask for an orders file (`<date>.orders.json`): the report's
+orders and the stops to place, as data, so they can be previewed at the broker
+and shown to the user for approval. Write exactly what the report says, whole
+shares and plain numbers, and never an order the report does not contain. You
+do not place orders and you have no reason to call a broker tool that does.
+
 Three rows the playbook now requires in every report, DAILY included:
 
 - every ACTIVE or AGING ADD that is not held, as a sized BUY or a HOLD with its

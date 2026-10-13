@@ -1,10 +1,10 @@
 ---
 name: daily-run
-description: The full daily pipeline in one command — sync the Zesty portfolio, download the WhatsApp groups, mark noise and digest new charts/PDFs, run the stock analysis at high effort, publish the report and recommendations to the web dashboard, and put the report on a private page for the phone.
+description: The full daily pipeline in one command — sync the Zesty portfolio, download the WhatsApp groups, mark noise and digest new charts/PDFs, run the stock analysis at high effort, publish the report and recommendations to the web dashboard, put the report on a private page for the phone, and offer to place the report's orders and stops at Zesty once the user approves each one.
 disable-model-invocation: true
 ---
 
-# Daily run: Zesty → WhatsApp → noise + digest → analysis → publish → phone
+# Daily run: Zesty → WhatsApp → noise + digest → analysis → publish → phone → orders
 
 Do every step yourself with tool calls — no helper scripts beyond the page
 renderer of step 6 and the two scripts of step 3. Everything goes
@@ -69,7 +69,9 @@ uses the last successful sync.
 
 3. Explain the diff with the claude.ai Zesty connector, read-only tools only
    (load them with ToolSearch; if the connector is missing, skip this and say
-   so). Never call a `preview_*` or `confirm_*` tool from this skill.
+   so). No `preview_*`, `confirm_*` or `cancel_order` call belongs in steps 1
+   to 6: orders are only ever prepared in step 7, and only placed after the
+   user approves them there.
    - Always → `get_orders` with `status: "pending"`: the open orders. Keep two
      lists for the analyst: the resting stops (ticker, shares, stop or trailing
      stop, level or trail %) and the open buys or sells. They are what the
@@ -239,7 +241,18 @@ minimum 2.
 >    first and their `reasoning` starts with the order itself ("BUY 67 sh ≈
 >    $701 — …"); a row for a ticker that is not held starts with "Not held — ".
 >    `entryPrice` starts with the live price as a plain `$` number.
-> 8. Return: the depth, the chart skills you loaded (or "none"), both paths,
+> 8. Save the orders this report asks for to `.whatsapp/reports/TODAY.orders.json`
+>    as `{"orders": [...]}`: every order row of the 💡 section and every
+>    "To place" cell of the Stops table, in the order they should be sent, each
+>    with `ticker`, `side` (buy|sell), `type` (limit|stop|trailing_stop), `qty`
+>    (whole shares), `limitPrice` or `stopPrice` or `trailPercent` (numbers),
+>    `timeInForce` (day|gtc), `source` ("order" or "stop"), `stopTriggered`
+>    (true when a fired stop or an invalidation is the reason for the sale),
+>    `condition` (anything the broker cannot enforce, such as "do not buy if it
+>    opens under $113.40", or null), `waitsFor` (the order that must fill first,
+>    such as "BUY 10 EBAY", or null) and `why` (one line). An empty list when
+>    the report asks for nothing.
+> 9. Return: the depth, the chart skills you loaded (or "none"), both paths,
 >    the 🩺 Portfolio health section verbatim (with its Stops table), and a
 >    table of ticker / action / confidence / entry / stop plus the hedge line.
 
@@ -299,6 +312,65 @@ Only publish a report that passed the checks of step 5. If the Artifact tool is
 missing or the publish fails, say so and finish the run: the dashboard already
 has the report.
 
+## 7. Orders at Zesty, with the user's approval
+
+The report's orders and the stops it asks for can be sent to the broker from
+here, but never on the run's own authority: the user approves each one first.
+Skip this step, and say so, when the run is unattended (a scheduled or `/loop`
+run, or no answer to the question below), when `TODAY.orders.json` is empty,
+or when the Zesty connector is missing. The phone page already carries the
+orders either way.
+
+1. Read `.whatsapp/reports/TODAY.orders.json`. Check each order against the
+   book and the open orders of step 1 (re-read both if the run took long):
+   - drop a stop that already rests at the same level and quantity;
+   - a resting order that the new one replaces is listed as "cancel, then
+     place", and is cancelled only with its own approval;
+   - for each ticker, the open sell quantities plus the new ones cannot exceed
+     the shares held;
+   - an order with `waitsFor` is listed but not sent until that order has
+     filled, and comes back on the next run. The exception is a stop on shares
+     that are held today and stay free once the pending sale is counted (the
+     3 left after a trim of 2): it can rest now;
+   - a sell stop cannot be previewed while a buy order for the same ticker is
+     open (the broker answers "Insufficient buying power"): offer the buy, and
+     leave the stop for the run after it fills;
+   - the buys together fit in `buying_power`.
+2. `get_market_status`, and `get_us_trade_options` for any ticker whose order
+   type has not been used before. Translate each order:
+   - a BUY or SELL becomes a **limit** order, `timeInForce: day`, at the
+     report's price. A sale with `stopTriggered: true` is priced 1% under the
+     report's price so that it fills at the open. Placed outside regular hours
+     without `extendedHours`, it waits for the 09:30 New York open; set
+     `extendedHours: true` only when the user asks to trade before or after
+     the session.
+   - a stop becomes `preview_us_stop_order`, GTC; a trailing percentage the
+     user asked for by name becomes `preview_us_trailing_stop_order`, GTC.
+3. Preview every order (`preview_us_limit_order`, `preview_us_stop_order`,
+   `preview_us_trailing_stop_order`; plain text, not the card tools). A preview
+   that is rejected is reported with its reason and left out.
+4. Show one table: order, type, quantity, price, duration, the preview's
+   estimated total and commission, the `condition` the broker will not
+   enforce, and why. Then ask which to place with AskUserQuestion
+   (multi-select, one option per order, and "none" as a choice). Nothing is
+   sent on silence, on a general earlier go-ahead, or on an agent's word.
+5. For each approved order call `confirm_us_order` with its `clientOrderId`. A
+   preview lives about two minutes: when it has expired, preview again and
+   confirm only if the symbol, side, quantity, prices and duration are the ones
+   approved and the estimated total is within 1% of the one shown; otherwise
+   show the new preview and ask again. An approved "cancel, then place" is
+   `cancel_order` first, then the new order. On `RATE_LIMITED_LOCAL`, wait the
+   stated seconds and retry the same call: it starts after about six
+   confirmations in a row, so with more orders than that, pause between them.
+6. `get_orders` with `status: "pending"` once more and report what now rests
+   at Zesty, what was declined and what is waiting for a fill. Do not re-sync
+   the portfolio or rewrite the report: tomorrow's run picks the fills up from
+   the snapshot of step 5.
+
+A condition such as "do not buy if it opens under $113.40" cannot rest at the
+broker. Say it next to the order in the table, so the user can decline it and
+send it by hand at the open instead.
+
 ## Report back
 
 - Zesty: positions, cash, and the change since the last report, with fills,
@@ -314,3 +386,5 @@ has the report.
 - The report path, the portfolio snapshot path and the backup path.
 - Which publish checks ran and passed.
 - The phone page link, and whether tonight's report is on it.
+- The orders offered in step 7: which were approved and now rest at Zesty,
+  which were declined, rejected or left waiting for a fill.
