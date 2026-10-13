@@ -200,6 +200,16 @@ function priceNote(): string {
     friday.setDate(friday.getDate() - (weekday === 6 ? 1 : 2));
     return `Markets are closed. Prices are the closes of ${short(friday)}.`;
   }
+  // A run after local midnight is dated a day ahead of New York: the session
+  // that just closed there is the one priced.
+  if (date > nyDate) {
+    const closed = new Date(`${nyDate}T12:00:00`);
+    const back = closed.getDay() === 0 ? 2 : closed.getDay() === 6 ? 1 : minutes < 16 * 60 ? 1 : 0;
+    closed.setDate(closed.getDate() - back);
+    if (closed.getDay() === 0) closed.setDate(closed.getDate() - 2);
+    if (closed.getDay() === 6) closed.setDate(closed.getDate() - 1);
+    return `Prices are the closes of ${short(closed)}.`;
+  }
   if (date === nyDate && minutes < 9 * 60 + 30) {
     return "Pre-market run. Prices are the previous session's closes; stops that wait for a close are not decided.";
   }
