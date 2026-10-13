@@ -65,7 +65,10 @@ SQLite corpus the app uses:
    small greps each re-send your whole context.
 3. Write the report: 📊 market summary → 🔍 per-ticker (what was said,
    sentiment, argument strength, sources) → 💡 recommendations with action,
-   confidence 0-100, entry, target, stop, rationale.
+   confidence 0-100, entry, target, stop, rationale. The caller names the
+   depth: on a DAILY run the playbook's REPORT DEPTH decides which tickers get
+   an entry at all, and a watchlist name with no evidence this session and no
+   trigger within 5% is left out of the report and the JSON.
 4. Tag every ticker with its sub-sector. Anything not in the Portfolio block's
    sector tables goes through `sectors` in ONE call with all such tickers —
    never infer a sector from the name when TradingView has a profile.
@@ -81,6 +84,29 @@ Prose, not JSON; you are writing for a person to read.
 Take the time to cross-check each call
 against the playbook, the MA200 slopes, the the main analyst ledger and live prices before
 you commit to it. Precision matters more than speed here.
+
+## What the caller hands you
+
+- **Open orders at Zesty.** The resting stops and open buys. The playbook's
+  "Stops" table is built from them: one row per held long, the report's stop,
+  what rests, and the exact order to place when nothing rests or it no longer
+  matches (type, shares, level or trail %). If the caller gave no list, write
+  "unknown" in that column rather than assuming.
+- **Buying power.** What a new order can spend. The bundle's Cash line shows
+  both numbers when an open buy order has reserved part of the cash: size BUYs
+  against buying power, value the book with cash.
+- **The scorecard file.** How the calls of the last weeks did. Read it before
+  you set confidences. It is evidence about the process, not about a ticker.
+- **The events file.** Earnings dates for the next 21 days and three days of
+  headlines for the held names and the ADDs. A held name that moved more than
+  5% gets its headline cited; a print inside ten trading days goes in the row.
+
+Three rows the playbook now requires in every report, DAILY included:
+
+- every ACTIVE or AGING ADD that is not held, as a sized BUY or a HOLD with its
+  single blocker, and the swap when the blocker is a cap;
+- the benchmark ETF (SMH) while the book trails it on both 6M and YTD;
+- every held ticker and every hedge held.
 
 ## Keeping the run inside the usage limit
 
@@ -100,6 +126,44 @@ produced nothing. So:
 - When a call hinges on a DeMark or Fibonacci reading in a digest, load the
   matching skill before relying on it; otherwise the digests' ★ and ◈ lines are
   already the reading.
+- **Own chart reads are a separate, bounded budget** (next section): they do
+  not count toward the three further lookups. Take them before you write the
+  recommendations, in one script call, so the calls can use them.
+
+## When the chart leg is missing, read the chart yourself
+
+A name must not stay on the watchlist as "missing leg: a chart reading" when
+you can produce that reading. Do it for every ticker that has a dated report
+leg from this session (or a the main analyst mention) and no chart of its own in the
+digests — at most six per run, the ones closest to a BUY first. Skip names
+that already fail on something else (a falling MA200, a capped sub-sector).
+
+1. Load `technical-analysis` and `fibonacci-charts` with the Skill tool, once
+   per run.
+2. `python3 scripts/chart-read.py T1 T2 …` — all tickers in ONE call. It
+   prints the 21/55/144/200-day averages with their direction, momentum on
+   three horizons, the weekly swing pivots and the last ten weekly bars.
+   TradingView's `multi_timeframe_analysis` is optional on top of it, for the
+   weekly/daily alignment; it has no bars, so it cannot give pivots or
+   Fibonacci levels.
+3. Read each one in the skills' order: horizon and trend from the weekly
+   pivots (higher or lower peaks AND troughs, or sideways), support and
+   resistance, price against each average and each average's own direction,
+   the momentum quadrant, then the Fibonacci grid. Name the anchors and say
+   whether the extreme was a blow-off spike (weaker grid) or a rounded or
+   double top; state the scale (arithmetic).
+4. Write it in the 🔍 entry as your own reading, dated, labelled "own chart
+   read (Yahoo bars)", never as something the group posted: trend, the
+   averages, the nearest Fibonacci level and the confluence, and one verdict:
+   chart leg present, present but not at an entry, or fails.
+5. Then decide the call. Present and at an entry completes the RESEARCH BUY.
+   Present but not at an entry stays HOLD (watchlist) with the level that
+   would trigger it and the order pre-sized. Fails stays on the watchlist with
+   the level that would repair it. An own read never creates an ADD and never
+   overrides the MA200 rule or the ledger.
+
+Add the reads to the 📥 notes: which tickers, and any the script could not
+price.
 
 ## Things that will bite you
 
@@ -135,7 +199,7 @@ produced nothing. So:
   in its first pages, open the PDF and read the pages the call depends on —
   this counts toward your extra lookups.
 - **You are not writing to the app's stores.** The caller publishes your
-  report and JSON (`/daily-run` step 4), which updates the stored
+  report and JSON (`/daily-run` step 5), which updates the stored
   recommendations, the dashboard's narrative and the per-ticker wiki. From
   here only the the main analyst ledger is writable.
 

@@ -48,10 +48,29 @@ as relevant.
 4. Text-heavy files (tweets, news, broker notes, tables, screeners, calendars)
    get `text_heavy: true` and a verbatim `transcript` — the analyst cites the
    exact figures from it.
-5. PDFs over 10 pages need `pages` on the Read call. Whole newspapers and
-   magazines (FT, WSJ, MoneyWeek, …) are long: read the first pages (front page,
-   contents) and any page the caption or the group discussion points to — not
-   every page — and say in the summary which pages you read.
+5. **PDFs: scan the whole file first, then read the pages that matter.** Never
+   stop at the first two or three pages — the thesis, the estimates table or
+   the price-target change is often further in, and missing it is data loss.
+   - Scan: `pdfinfo <file>` for the page count, then
+     `pdftotext -layout <file> -` (it marks page breaks with a form feed) and
+     map what each page holds. The text pass is cheap; do it for every PDF,
+     whatever its length. If it returns no text (a scanned PDF), Read the pages
+     as images in ranges instead.
+   - Drop the pages with no information: disclaimers, analyst certifications,
+     disclosures, trademark and legal notices, rating-distribution tables,
+     contact lists, blank pages and ads. They usually fill the end of a broker
+     note.
+   - Extract from everything else. Take the text of the relevant pages from the
+     scan, and Read (with `pages`; required over 10 pages) every relevant page
+     that carries a chart, a table or an exhibit, because the text pass loses
+     those.
+   - Broker notes and research reports: cover every content page. Whole
+     newspapers and magazines (FT, WSJ, MoneyWeek, …): use the scan to pick the
+     markets, companies, economy and opinion pages that touch the playbook's
+     sectors or anything the caption or the group discussion points to, and
+     skip the rest.
+   - Say in the summary which pages you read and which you skipped as
+     boilerplate, so the analyst knows the note was read in full.
 6. **Check the edition date of every newspaper and magazine** against the
    message date. A file whose printed date is older is a stale copy (the sender
    reuses filenames, and an older file with the same name can be stored in its
@@ -70,7 +89,9 @@ once more for the remaining count.
 
 - Noise pass: messages classified, how many marked as noise, and whether any
   are still pending.
-- Files digested, split into images and PDFs, and which PDFs with which pages.
+- Files digested, split into images and PDFs; for each PDF, its page count, the
+  pages read and the pages skipped as boilerplate. Name any PDF whose content
+  pages you did not cover in full, and why.
 - The chart skills you loaded, or "none — no price charts".
 - Stale editions, with the printed date of each.
 - Files you could not read, and why.
