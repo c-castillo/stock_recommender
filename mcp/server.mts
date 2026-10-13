@@ -30,7 +30,6 @@ import {
   setMediaDigest,
   listPortfolio,
   getCashBalance,
-  getPortfolioGoal,
   getPortfolioHistory,
   listGroupJidsByName,
   listUnclassifiedForReview,
@@ -549,8 +548,8 @@ export function buildMcpServer(): McpServer {
     {
       title: "Portfolio",
       description:
-        "Current holdings with live prices and MA200 slopes, cash balance, the " +
-        "savings goal, and recent total-value history. Same rendering the analysis " +
+        "Current holdings with live prices and MA200 slopes, cash balance and " +
+        "recent total-value history. Same rendering the analysis " +
         "prompt gets, so position-sizing rules apply directly.",
       inputSchema: {
         historyDays: z.number().int().min(0).max(365).default(14),
@@ -559,10 +558,6 @@ export function buildMcpServer(): McpServer {
     },
     async ({ historyDays }) => {
       const section = await buildPortfolioContext();
-      const goal = getPortfolioGoal();
-      const goalLine = goal
-        ? `\n## Goal\n$${goal.amount.toLocaleString("en-US")} by ${goal.deadline}\n`
-        : "";
       const history = historyDays
         ? getPortfolioHistory(historyDays)
             .map(
@@ -573,7 +568,6 @@ export function buildMcpServer(): McpServer {
         : "";
       return text(
         section +
-          goalLine +
           (history ? `\n## Total value history\nDate|Total|Market|Cash\n---|---|---|---\n${history}\n` : "")
       );
     }

@@ -31,7 +31,7 @@ warns you when files in the window have no digest yet.
 | `list_groups` | Synced groups with counts and date ranges |
 | `search_messages` | Substring search over stored bodies |
 | `media_digests` | Cached chart/PDF summaries |
-| `portfolio` | Holdings, cash, live prices, MA200 slopes, goal, value history |
+| `portfolio` | Holdings, cash, live prices, MA200 slopes, value history |
 | `quotes` | Live price + MA200 slope for arbitrary tickers |
 | `latest_report` | The stored recommendations, optionally the full narrative |
 | `main_analyst_adds` | The active the main analyst watchlist |
