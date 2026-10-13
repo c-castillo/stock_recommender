@@ -68,7 +68,7 @@ export async function summarizeSignals(
           role: "user",
           content:
             "From these stock-trading WhatsApp messages, extract a per-ticker " +
-            "sentiment and conviction rollup. Treat '+TICKER' (the main analyst watchlist " +
+            "sentiment and conviction rollup. Treat '+TICKER' (the main analyst's watchlist " +
             "adds) as the strongest bullish signal. Ignore greetings/off-topic " +
             "chatter.\n\n" +
             corpus,

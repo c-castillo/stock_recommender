@@ -3,9 +3,9 @@ name: demark-charts
 description: Read and interpret DeMARK TD Sequential 9 and 13 counts on charts the main analyst shares in the WhatsApp groups, and turn them into a directional call the playbook can use. Use when asked about DeMark, TD Sequential, TD Combo, a "9" or "13" on a chart, setup/countdown, perfection, TDST levels, risk levels, or exhaustion signals.
 ---
 
-# Reading the main analyst's DeMARK charts
+# Reading The main analyst's DeMARK charts
 
-the main analyst posts charts carrying DeMARK TD Sequential counts — the numbers running
+The main analyst posts charts carrying DeMARK TD Sequential counts — the numbers running
 above and below the bars, with 9 and 13 as the ones that matter. This skill
 turns those into a directional read.
 
@@ -31,7 +31,7 @@ of weakness — it is the *downtrend* exhausting, which is why it precedes an
 ## Reading the chart itself
 
 **Position, not colour.** Colour is platform-specific and will mislead you. The
-TradingView script plots both setups in blue. the main analyst posts Bloomberg (`demark`
+TradingView script plots both setups in blue. The main analyst posts Bloomberg (`demark`
 study) and Symbolik, which use **green below for buy** and **red above for
 sell**. Always check which side of the price the number sits on.
 
@@ -72,7 +72,7 @@ treat the eventual 9 as stale just because the count continued.
 
 ## The three-skill stack
 
-the main analyst's methodology is these three used together, in order:
+The main analyst's methodology is these three used together, in order:
 
 1. **`technical-analysis`** — the frame. Horizon, trend, support/resistance,
    21/55/144 moving averages, momentum and divergence. Run this on EVERY chart.
@@ -144,7 +144,7 @@ Then apply the project's standing rules, which outrank this skill:
 
 ```
 CIEN · daily · Sell Setup 9 (perfected — down-arrow above bar 9)
-  Chart: the main analyst, 2026-09-04 · TDST support 318 · Risk level 352 (high 344 + TR 8)
+  Chart: main analyst, 2026-09-04 · TDST support 318 · Risk level 352 (high 344 + TR 8)
   Filter: entry 331 → TDST 318 is 13pts; entry → risk 21pts. 0.6x < 1.5x — FAILS
   Read: upside exhausting, but reward/risk does not qualify per Perl
   Playbook: MM200 ↑+5.5%, no active ADD → trim only, do not short

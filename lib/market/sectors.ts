@@ -8,7 +8,7 @@
  * reads as "diversified tech" under GICS while it is really one AI-hardware
  * bet. Sub-sectors are drawn at the level the corpus argues about.
  *
- * Hedges are long-only on purpose: the main analyst hedges with options, and the broker
+ * Hedges are long-only on purpose: The main analyst hedges with options, and the broker
  * (Zesty) has no options, so every hedge must be something you can BUY —
  * an inverse ETF on the matching index, or a defensive long.
  */

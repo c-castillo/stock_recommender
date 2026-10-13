@@ -1,13 +1,13 @@
 ---
 name: technical-analysis
-description: Read any price chart using the Credit Suisse technical framework the main analyst teaches — trend structure, support/resistance, trendlines, the 21/55/144 moving averages, momentum and divergence, cycle quadrants, and reversal patterns. Invoke this for EVERY chart, then layer fibonacci-charts and demark-charts on top. Use when a chart, screenshot or price graph appears, or when asked about trend, support, resistance, trendlines, moving averages, momentum, divergence, overbought/oversold, head and shoulders, or Elliott waves.
+description: Read any price chart the way the main analyst does, with a classic technical-analysis framework — trend structure, support/resistance, trendlines, the 21/55/144 moving averages, momentum and divergence, cycle quadrants, and reversal patterns. Invoke this for EVERY chart, then layer fibonacci-charts and demark-charts on top. Use when a chart, screenshot or price graph appears, or when asked about trend, support, resistance, trendlines, moving averages, momentum, divergence, overbought/oversold, head and shoulders, or Elliott waves.
 ---
 
-# Reading a chart the the main analyst way
+# Reading a chart the main analyst's way
 
 The source is Credit Suisse's own primer, *Technical Analysis – Explained*
-(Global Technical Research and Behavioral Finance, Zurich) — the house
-methodology the main analyst works from. Together with Fibonacci and DeMark it is
+(Global Technical Research and Behavioral Finance, Zurich) — the
+framework the main analyst works from. Together with Fibonacci and DeMark it is
 the trio the group actually trades.
 
 **Use all three, in this order, on every chart:**

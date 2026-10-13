@@ -3,7 +3,7 @@ name: fibonacci-charts
 description: Read and interpret Fibonacci retracements, extensions, fans, arcs and time zones on charts the main analyst shares in the WhatsApp groups, and turn them into a directional call the playbook can use. Use when asked about Fibonacci, fib levels, retracements, extensions, 0.618 / 0.786 / 1.618, golden ratio, anchoring a fib, or price targets derived from a fib.
 ---
 
-# Reading the main analyst's Fibonacci charts
+# Reading The main analyst's Fibonacci charts
 
 The playbook makes this the primary method: *"Primary setup: Big Bases
 (**Fibonacci main**, Demark secondary)."* A Fibonacci read is not corroboration
@@ -83,7 +83,7 @@ high ($193) was the entry, not the eventual breakout of the all-time high
 
 ## The three-skill stack
 
-the main analyst's methodology is these three used together, in order:
+The main analyst's methodology is these three used together, in order:
 
 1. **`technical-analysis`** — the frame. Horizon, trend, support/resistance,
    21/55/144 moving averages, momentum and divergence. Run this on EVERY chart.
@@ -143,7 +143,7 @@ Then apply the project's standing rules, which outrank this skill:
 
 ```
 GFS · daily · retracement anchored 2023 high → 2025 low (cycle extremes, rounded top — OK)
-  Chart: the main analyst, 2026-04-02 · 0.382 = 41.20 · 0.500 = 44.80 · 0.618 = 48.40
+  Chart: main analyst, 2026-04-02 · 0.382 = 41.20 · 0.500 = 44.80 · 0.618 = 48.40
   Respected: rejected twice at 0.382; consolidating beneath it
   Confluence: 0.618 sits on the 2024 structural high — strong overhead
   Playbook: MM200 ↓ → resistance read stands; no long here
@@ -154,7 +154,7 @@ Guessing at a level is worse than reporting that you could not read it.
 
 ## Group conventions and one live disagreement
 
-- the main analyst is the group's fib authority (*"Ud es el capo en fibo doc"*), and members
+- The main analyst is the group's fib authority (*"Ud es el capo en fibo doc"*), and members
   regularly ask **how he anchors** — e.g. *"cuando hace esas estimaciones las
   hace con fibonacci desde el punto más alto del gráfico?"* Anchoring is the
   recurring question; answer it explicitly whenever you read a chart.
@@ -178,6 +178,6 @@ and the best-practice section on anchoring — are in
 ## Source
 
 Tarek I. Saab, *An Introduction to Applying Fibonacci Ratios in Technical
-Analysis* (fibonacci.com), shared by the main analyst as
-`~/Downloads/Dr CS_Introduction to Fibonacci copy.pdf`. Quotes Constance Brown,
+Analysis* (fibonacci.com), a PDF the main analyst shared with the group. Quotes
+Constance Brown,
 *Fibonacci Analysis* (Bloomberg/Wiley), on secondary-pivot anchoring.

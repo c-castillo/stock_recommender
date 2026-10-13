@@ -13,7 +13,7 @@ history from my Mac. Use it rather than asking me for data I've already got.
 
 1. Call `playbook` — the frozen rules: trend-following philosophy, MA200 bias,
    main analyst ADD override, and the report shape. Follow it literally.
-2. Call `analysis_bundle` — the the main analyst ledger, filtered messages, chart/PDF
+2. Call `analysis_bundle` — the ADD ledger, filtered messages, chart/PDF
    digests, portfolio with live prices and MA200 slopes, prior-run history.
 3. Write the report in prose: 📊 market summary → 🔍 per-ticker (what was said,
    sentiment, argument strength, sources) → 💡 recommendations with action,
@@ -23,8 +23,8 @@ history from my Mac. Use it rather than asking me for data I've already got.
 
 - Entry prices for BUYs come from live data — the bundle's live-price table or
   `quotes`. Never from a price quoted in an old message or an earlier report.
-- The main analyst ADD ledger outranks everything, including a negative MA200 or an
-  unrealised loss. Only an explicit the main analyst SELL closes a row.
+- The ADD ledger outranks everything, including a negative MA200 or an
+  unrealised loss. Only an explicit main-analyst SELL closes a row.
 - If the main analyst adds a ticker by voice, image or chat instead of a `+TICKER`
   message, persist it with `record_main_analyst_add`. Editing a past report does
   nothing — the ledger is what feeds every future run.

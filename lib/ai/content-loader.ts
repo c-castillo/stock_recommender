@@ -10,6 +10,8 @@
 import {
   getContentForAnalysis,
   isMainAnalystAdd,
+  isMainAnalyst,
+  mainAnalystAliases,
   listActiveMainAnalystAdds,
   type MainAnalystAddEntry,
   type MessageForAnalysis,
@@ -112,7 +114,9 @@ export function renderTextBlock(rows: MessageForAnalysis[]): string {
     // Oldest first within each group so context reads naturally.
     for (const m of [...msgs].reverse()) {
       const tag = isMainAnalystAdd(m.body) ? "[★ MAIN ANALYST ADD] " : "";
-      text += `[${formatTs(m.ts)}] ${m.sender ?? "?"}: ${tag}${m.body}\n`;
+      // Senders are opaque WhatsApp ids; name the one whose word carries weight.
+      const who = isMainAnalyst(m.sender) ? "MAIN ANALYST" : m.sender ?? "?";
+      text += `[${formatTs(m.ts)}] ${who}: ${tag}${m.body}\n`;
     }
     text += "\n";
   }
@@ -234,7 +238,7 @@ export function renderMediaDigestBlock(
   return text + "\n";
 }
 
-// ── main analyst ADD ledger ────────────────────────────────────────────────────────
+// ── ADD ledger ────────────────────────────────────────────────────────
 
 /** An ADD older than this without a refresh from the main analyst is aging. */
 const ADD_AGING_DAYS = 90;
@@ -296,8 +300,17 @@ export async function loadMainAnalystAddLedger(): Promise<LedgerRow[]> {
   });
 }
 
+/** Tells the reader which name in the chats and stored notes is the main analyst. */
+function aliasLine(): string {
+  const aliases = mainAnalystAliases();
+  return aliases.length > 0
+    ? `In the chats, the media digests and the notes below, the main analyst is written as: ${aliases.join(", ")}. ` +
+        'Write "the main analyst" in the report.\n'
+    : "";
+}
+
 /**
- * Render the persistent main analyst ADD ledger as a high-priority block. the main analyst's adds
+ * Render the persistent ADD ledger as a high-priority block. The main analyst's adds
  * don't always arrive as "+TICKER" text, so without this the synthesis loses
  * them each run and re-derives a SELL from MM200/loss rules. Each row carries
  * its lifecycle status so the override is only applied where it still holds.
@@ -315,8 +328,9 @@ export function renderMainAnalystAddLedger(rows: LedgerRow[]): string {
     })
     .join("\n");
   return (
-    "\n## ★ main analyst ADD ledger — PERSISTED [HIGHEST PRIORITY]\n" +
+    "\n## ★ ADD ledger — PERSISTED [HIGHEST PRIORITY]\n" +
     "Each row was added by the main analyst. Apply the playbook's ADD LIFECYCLE by the Status column:\n" +
+    aliasLine() +
     "- ACTIVE: live [★ MAIN ANALYST ADD] — BUY or HOLD, never a full SELL; a concentration trim is allowed.\n" +
     "- AGING (>90d, no refresh): still blocks a full SELL, confidence capped at 70.\n" +
     "- EXPIRED (aging AND MM200 falling): no override — ordinary rules, including SELL.\n" +

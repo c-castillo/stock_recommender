@@ -1,5 +1,5 @@
 /**
- * CLI: backfill the main analyst ADD ledger from ADDs already sitting in the corpus.
+ * CLI: backfill the ADD ledger from ADDs already sitting in the corpus.
  *
  * Ingestion now writes every "+TICKER" through to `main_analyst_adds`, but messages
  * stored before that change only ever set the `main_analyst_add` flag. Those ADDs

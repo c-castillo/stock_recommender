@@ -27,7 +27,7 @@ export async function POST(request: Request) {
   return Response.json({ adds: listActiveMainAnalystAdds() });
 }
 
-// DELETE ?ticker=XYZ — deactivate an ADD (the main analyst SELL / thesis closed).
+// DELETE ?ticker=XYZ — deactivate an ADD (a SELL from the main analyst / thesis closed).
 export async function DELETE(request: Request) {
   const ticker = new URL(request.url).searchParams.get("ticker");
   if (!ticker) return Response.json({ error: "ticker requerido" }, { status: 400 });

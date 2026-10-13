@@ -34,7 +34,7 @@ SQLite corpus the app uses:
 | Store your reading of one file | `save_media_digest` |
 | Sub-sector of any ticker (curated map, then TradingView) | `sectors` |
 | Yesterday's verdicts | `latest_report` |
-| The the main analyst watchlist | `main_analyst_adds`, `record_main_analyst_add`, `deactivate_main_analyst_add` |
+| The main analyst's watchlist | `main_analyst_adds`, `record_main_analyst_add`, `deactivate_main_analyst_add` |
 
 ## Running a full analysis
 
@@ -54,7 +54,7 @@ SQLite corpus the app uses:
 1. `playbook` — the frozen philosophy, methodology, main analyst ADD override and
    required report shape. Follow it literally; it is the same system prompt the
    in-app Sonnet call receives.
-2. `analysis_bundle` — the main analyst ledger, SEC filings for held and ADD tickers,
+2. `analysis_bundle` — the ADD ledger, SEC filings for held and ADD tickers,
    filtered messages, media digests, portfolio with live prices and MA200
    slopes, prior-run history, memory. Default 7 days, matching the app. On a
    daily run pass `fullDetailDays` = days since the previous report (minimum
@@ -82,7 +82,7 @@ SQLite corpus the app uses:
 Prose, not JSON; you are writing for a person to read.
 
 Take the time to cross-check each call
-against the playbook, the MA200 slopes, the the main analyst ledger and live prices before
+against the playbook, the MA200 slopes, the ADD ledger and live prices before
 you commit to it. Precision matters more than speed here.
 
 ## What the caller hands you
@@ -134,7 +134,7 @@ produced nothing. So:
 
 A name must not stay on the watchlist as "missing leg: a chart reading" when
 you can produce that reading. Do it for every ticker that has a dated report
-leg from this session (or a the main analyst mention) and no chart of its own in the
+leg from this session (or a main-analyst mention) and no chart of its own in the
 digests — at most six per run, the ones closest to a BUY first. Skip names
 that already fail on something else (a falling MA200, a capped sub-sector).
 
@@ -177,12 +177,12 @@ price.
 - **A stale corpus looks like a quiet market.** If `corpus_status` shows the
   newest message is over a day old, the WhatsApp sync is down, not the group.
   Lead with that instead of writing a confident report on nothing.
-- **The main analyst ADD ledger outranks everything while its Status allows it.**
+- **The ADD ledger outranks everything while its Status allows it.**
   ACTIVE and AGING rows override a negative MA200 or an unrealised loss;
   EXPIRED (aging + falling MA200) and INVALIDATED (below the main analyst's stated level)
   rows fall back to the ordinary rules, SELL included. Any ADD can be trimmed
-  for concentration. Close a row with `deactivate_main_analyst_add` on a the main analyst SELL, or
-  once an EXPIRED/INVALIDATED position has been exited. Only an explicit the main analyst
+  for concentration. Close a row with `deactivate_main_analyst_add` on a main-analyst SELL, or
+  once an EXPIRED/INVALIDATED position has been exited. Only an explicit main-analyst
   buy is an ADD — a chart he posts without buy words is a watchlist item. When
   he adds one by voice, image or chat rather than `+TICKER`, persist it with
   `record_main_analyst_add`, with `invalidation` if he named a level — editing a past
@@ -201,7 +201,7 @@ price.
 - **You are not writing to the app's stores.** The caller publishes your
   report and JSON (`/daily-run` step 5), which updates the stored
   recommendations, the dashboard's narrative and the per-ticker wiki. From
-  here only the the main analyst ledger is writable.
+  here only the ADD ledger is writable.
 
 ## Follow-up questions
 

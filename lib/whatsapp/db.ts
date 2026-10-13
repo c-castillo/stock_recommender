@@ -129,11 +129,11 @@ function initSchema(db: Database.Database) {
       cash_balance REAL NOT NULL
     );
 
-    -- Persistent ledger of main analyst ADD signals. the main analyst's adds don't always arrive
+    -- Persistent ledger of main analyst ADD signals. The main analyst's adds don't always arrive
     -- as "+TICKER" text (they come via chat/voice/images), so the analysis
     -- pipeline would otherwise lose them every run and re-derive a SELL from
     -- MM200/loss rules. Rows here are injected into every synthesis run as
-    -- [★ MAIN ANALYST ADD] until explicitly deactivated (the main analyst SELL / thesis closed).
+    -- [★ MAIN ANALYST ADD] until explicitly deactivated (a SELL from the main analyst / thesis closed).
     CREATE TABLE IF NOT EXISTS main_analyst_adds (
       ticker      TEXT PRIMARY KEY,
       entry_price TEXT,
@@ -162,7 +162,7 @@ function initSchema(db: Database.Database) {
     // Cached Haiku digest of a chart image / PDF, produced once at ingestion so
     // the synthesis call never re-sends raw base64 media. JSON-encoded.
     "ALTER TABLE wa_messages ADD COLUMN media_digest TEXT",
-    // 1 when the message is a the main analyst watchlist add ("+TICKER"). Set at insert
+    // 1 when the message is a main-analyst watchlist add ("+TICKER"). Set at insert
     // time so the flag survives without re-deriving it from the body.
     "ALTER TABLE wa_messages ADD COLUMN main_analyst_add INTEGER NOT NULL DEFAULT 0",
     // Model-assigned relevance: 1 = can inform a recommendation, 0 = noise,
@@ -295,17 +295,38 @@ export interface MessageRow {
 }
 
 /**
- * A the main analyst watchlist add: a message whose body starts with "+" followed by a
+ * A main-analyst watchlist add: a message whose body starts with "+" followed by a
  * ticker (optionally after a space, e.g. "+VIAV" or "+ CTVA"). Excludes things
  * like "+55% arriba" where a digit follows the "+".
  */
 const MAIN_ANALYST_ADD_RE = /^\+\s*[A-Za-z]/;
 
 /**
- * WhatsApp sender ids for the main analyst. Only his "+TICKER" becomes a ledger row — a
- * member's "+CRDO 172" or "+sndk" is chat, not an ADD.
+ * WhatsApp sender ids of the main analyst. Only his "+TICKER" becomes a ledger
+ * row: a "+TICKER" from anyone else is chat. The ids are data, not code: they
+ * live in kv_store under `main_analyst_senders` as a JSON array.
  */
-export const MAIN_ANALYST_SENDERS = new Set(["000000000000000@lid"]);
+let mainAnalystSenders: Set<string> | null = null;
+
+export function isMainAnalyst(sender: string | null | undefined): boolean {
+  if (!mainAnalystSenders) {
+    try {
+      mainAnalystSenders = new Set(JSON.parse(getKv("main_analyst_senders") ?? "[]") as string[]);
+    } catch {
+      mainAnalystSenders = new Set();
+    }
+  }
+  return sender != null && mainAnalystSenders.has(sender);
+}
+
+/**
+ * How the main analyst is written in the chats, the stored digests and the
+ * ledger notes (kv_store `main_analyst_aliases`, comma-separated), so a reader
+ * of that data can tell who is meant. Empty when none is recorded.
+ */
+export function mainAnalystAliases(): string[] {
+  return (getKv("main_analyst_aliases") ?? "").split(",").map((a) => a.trim()).filter(Boolean);
+}
 
 export function isMainAnalystAdd(body: string | null | undefined): boolean {
   return body != null && MAIN_ANALYST_ADD_RE.test(body.trim());
@@ -380,7 +401,7 @@ function insertParams(msg: MessageRow) {
  * SELLs the playbook would otherwise have forbidden.
  */
 function persistMainAnalystAdds(msg: MessageRow) {
-  if (!isMainAnalystAdd(msg.body) || !MAIN_ANALYST_SENDERS.has(msg.sender ?? "")) return;
+  if (!isMainAnalystAdd(msg.body) || !isMainAnalyst(msg.sender)) return;
   const addedOn = new Date(msg.ts * 1000).toISOString().slice(0, 10);
   for (const { ticker, entryPrice } of parseMainAnalystAdds(msg.body)) {
     recordMainAnalystAddIfNew({ ticker, entryPrice, addedOn, note: "auto: +TICKER in corpus" });
@@ -1117,7 +1138,7 @@ export function relevanceStats(jids: string[]): { relevant: number; noise: numbe
   };
 }
 
-// ── main analyst ADD ledger ──────────────────────────────────────────────────────────
+// ── ADD ledger ──────────────────────────────────────────────────────────
 
 export interface MainAnalystAddEntry {
   ticker: string;
@@ -1203,7 +1224,7 @@ export function listMainAnalystAddMessages(): { body: string | null; ts: number 
       .prepare("SELECT body, ts, sender FROM wa_messages WHERE main_analyst_add = 1 ORDER BY ts ASC")
       .all() as { body: string | null; ts: number; sender: string | null }[]
   )
-    .filter((r) => MAIN_ANALYST_SENDERS.has(r.sender ?? ""))
+    .filter((r) => isMainAnalyst(r.sender))
     .map(({ body, ts }) => ({ body, ts }));
 }
 

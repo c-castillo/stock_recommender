@@ -74,7 +74,7 @@ uses the last successful sync.
      row's own `addedOn` (so the date does not move) and its note plus
      "STOPPED OUT <date> at <price>; not re-bought until the main analyst refreshes the
      ADD or price closes back above <stop>". Do not deactivate the row: only a
-     the main analyst SELL or an exited EXPIRED/INVALIDATED row is deactivated.
+     a SELL from the main analyst or an exited EXPIRED/INVALIDATED row is deactivated.
    - Cash changed with no trade → `get_dividends`, then `get_movements`.
    - Always → `get_movements` with `type: "deposits"` and again with
      `"withdrawals"`: compare the newest movement date with
@@ -217,7 +217,7 @@ minimum 2.
 > 5. **Order size.** An order worth less than 1% of the book's total value is
 >    not a fix: report the breach it would cure as "within tolerance" with the
 >    $ amount, and don't list the order. Exceptions: an order that closes a
->    position, or one triggered by a stop, an invalidation level or a the main analyst
+>    position, or one triggered by a stop, an invalidation level or a main-analyst
 >    SELL. Placing or moving a resting stop is not an order row at all: it goes
 >    in the Stops table.
 > 6. Save the report to `.whatsapp/reports/TODAY.md`, before any optional check.

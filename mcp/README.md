@@ -34,7 +34,7 @@ warns you when files in the window have no digest yet.
 | `portfolio` | Holdings, cash, live prices, MA200 slopes, value history |
 | `quotes` | Live price + MA200 slope for arbitrary tickers |
 | `latest_report` | The stored recommendations, optionally the full narrative |
-| `main_analyst_adds` | The active the main analyst watchlist |
+| `main_analyst_adds` | The active main-analyst watchlist |
 | `record_main_analyst_add` / `deactivate_main_analyst_add` | The only writes this server allows |
 
 Everything else — the corpus, the portfolio, the wiki — is read-only.

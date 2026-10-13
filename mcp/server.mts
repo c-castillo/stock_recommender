@@ -36,6 +36,7 @@ import {
   getUnclassifiedBodies,
   setRelevanceByRowid,
   listActiveMainAnalystAdds,
+  isMainAnalyst,
   recordMainAnalystAdd,
   deactivateMainAnalystAdd,
   loadAiRecommendations,
@@ -117,7 +118,7 @@ export function buildMcpServer(): McpServer {
       title: "Analysis bundle",
       description:
         "Everything needed to write the investment report, in one call: the active " +
-        "main analyst ADD ledger, relevance-filtered WhatsApp messages, cached chart/PDF " +
+        "ADD ledger, relevance-filtered WhatsApp messages, cached chart/PDF " +
         "digests, recent SEC filings for held and ADD tickers, portfolio with live " +
         "prices and MA200 slopes, prior-run history and cross-session memory. This is " +
         "the same context the in-app Stage-3 synthesis receives. Pair it with `playbook`. " +
@@ -310,7 +311,7 @@ export function buildMcpServer(): McpServer {
           hits
             .map(
               (r) =>
-                `[${fmtTs(r.ts)}] ${names.get(r.jid) ?? r.jid} · ${r.sender ?? "?"}: ${r.body}`
+                `[${fmtTs(r.ts)}] ${names.get(r.jid) ?? r.jid} · ${isMainAnalyst(r.sender) ? "MAIN ANALYST" : r.sender ?? "?"}: ${r.body}`
             )
             .join("\n")
       );
@@ -377,7 +378,7 @@ export function buildMcpServer(): McpServer {
         .map(
           (r) =>
             `- id: ${r.id}\n  path: ${r.media_path}\n  ${r.media_type} (${r.media_mime ?? "?"}) · ` +
-            `${fmtTs(r.ts)} · "${r.group_name}" · ${r.sender ?? "?"}` +
+            `${fmtTs(r.ts)} · "${r.group_name}" · ${isMainAnalyst(r.sender) ? "MAIN ANALYST" : r.sender ?? "?"}` +
             (r.body && !/^\[(image|document|video|audio)\]$/.test(r.body)
               ? `\n  caption: ${r.body.replace(/\s+/g, " ").slice(0, 300)}`
               : "")
@@ -642,14 +643,14 @@ export function buildMcpServer(): McpServer {
     }
   );
 
-  // ── main analyst ADD ledger (the only writable surface) ─────────────────────────────
+  // ── ADD ledger (the only writable surface) ─────────────────────────────
 
   server.registerTool(
     "main_analyst_adds",
     {
-      title: "main analyst ADD ledger",
+      title: "ADD ledger",
       description:
-        "the main analyst watchlist adds with their lifecycle status (ACTIVE / AGING / EXPIRED / " +
+        "the main analyst's watchlist adds with their lifecycle status (ACTIVE / AGING / EXPIRED / " +
         "INVALIDATED) judged against live price, MA200 slope and each ADD's invalidation level.",
       inputSchema: {},
       annotations: { readOnlyHint: true },
@@ -666,9 +667,9 @@ export function buildMcpServer(): McpServer {
     {
       title: "Record a main analyst ADD",
       description:
-        "Add (or re-activate) a ticker in the the main analyst ledger so every future analysis " +
+        "Add (or re-activate) a ticker in the ADD ledger so every future analysis " +
         "treats it as a live [★ MAIN ANALYST ADD]. Use this when the main analyst adds a name by voice, " +
-        "image or chat rather than a '+TICKER' message. Only for an explicit the main analyst buy " +
+        "image or chat rather than a '+TICKER' message. Only for an explicit main-analyst buy " +
         "(a '+TICKER' or words like 'buy', 'compren', 'I'm a buyer' naming the ticker) — a " +
         "chart posted without them is a watchlist item, not an ADD. Idempotent per ticker.",
       inputSchema: {
@@ -697,7 +698,7 @@ export function buildMcpServer(): McpServer {
     {
       title: "Close a main analyst ADD",
       description:
-        "Deactivate a ticker in the the main analyst ledger when the main analyst issues a SELL, or when the " +
+        "Deactivate a ticker in the ADD ledger when the main analyst issues a SELL, or when the " +
         "ledger shows it INVALIDATED or EXPIRED and the position has been exited. An " +
         "unrealised loss alone is NOT a reason.",
       inputSchema: { ticker: z.string() },
