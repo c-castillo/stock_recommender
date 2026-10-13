@@ -43,3 +43,6 @@ wiki/
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# python bytecode from scripts/
+__pycache__/
