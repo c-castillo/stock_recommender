@@ -4,149 +4,132 @@ description: The full daily pipeline in one command — sync the Zesty portfolio
 disable-model-invocation: true
 ---
 
-# Daily run: Zesty → WhatsApp → noise + digest → analysis → publish → phone → orders
+# Daily run: preflight → noise + digest → analysis → publish → phone → orders
 
-Do every step yourself with tool calls — no helper scripts beyond the page
-renderer of step 6 and the two scripts of step 3. Everything goes
-through the running dashboard at `http://localhost:3000` (the WhatsApp client
-and the Zesty login both live inside the Next.js process). Stop and report if a
-step fails; never publish recommendations from an analysis that ran on a failed
-sync or a stale corpus. Keep the user posted with one line per step.
+The mechanical steps are two scripts, so they are the same every day:
+`scripts/preflight.py` (the syncs, the diff, the last report's orders, the
+scorecard, the events) and `scripts/publish-check.py` (the checks and the
+publish). You run them, read what they print, and do what needs judgement: the
+two agents of step 4, the phone page, and the orders with the user's approval.
+Everything goes through the running dashboard at `http://localhost:3000` (the
+WhatsApp client and the Zesty login both live inside the Next.js process). Stop
+and report if a step fails; never publish recommendations from an analysis
+that ran on a failed sync or a stale corpus. Keep the user posted with one
+line per step.
 
 **No API credits.** Every model call in this flow runs on the Claude plan,
 through the two agents in step 4. Don't call `/api/analyze` or
 `scripts/sweep-relevance.ts` from here — those bill the Anthropic API key.
 
-**When it runs.** Once a day, in the evening after the US close (16:00 New
-York), so prices are the day's closes and the orders are ready for the next
-open. `TODAY` below is the local date (`date +%F`), not the UTC one. A second
-run on the same day replaces that day's report, snapshot and wiki entries.
-During market hours use `/stop-check` instead: it syncs Zesty and prints each
-holding against its stop, with no agents and nothing published. A full run
-before the close cannot decide a stop that waits for a close.
+**When it runs.** Once a day **before the US open** (09:30 New York), scheduled
+at 08:30 local time from Monday to Saturday by
+`scripts/schedule/com.stock-recommender.daily-run.plist`. The report is written
+on the closes of the session that ended the evening before, with the night's
+news and the pre-market prints beside them, and its orders are for the open
+that follows. Saturday's run is the weekly review on Friday's closes. `TODAY`
+is the local date (`date +%F`); the session the prices belong to is in
+`TODAY.run.json`, which the preflight writes. A second run on the same day
+replaces that day's report, snapshot and wiki entries. During market hours use
+`/stop-check` instead: a full run while the market is open cannot decide a
+stop that waits for a close.
 
-**Depth.** `DEPTH` is `WEEKLY` or `DAILY`, and goes in the analyst's prompt:
+**Unattended.** `/daily-run unattended` (what the schedule sends) does steps 0
+to 6 and stops: it asks nothing, places nothing and skips step 7. The Zesty
+trading tools are denied to that session by its own command line
+(`scripts/scheduled-run.sh`), so this is a fact and not a promise. It ends
+with a PushNotification of one line: the number of orders waiting for
+approval and the first thing that needs attention, or the step that failed.
+The user then approves the orders from the phone page (step 6) or by running
+`/daily-run orders` here, which does step 7 alone on today's report.
 
-- `WEEKLY` (the full review of every ticker in the window) when TODAY is a
-  Friday, Saturday or Sunday and no report dated since that Friday has
-  `Depth: WEEKLY` on its second line; when the newest report is more than
-  seven days old; or when the user asks for it (`/daily-run weekly`).
+**Depth.** `DEPTH` is `WEEKLY` or `DAILY`; the preflight decides it and prints
+it, and it goes in the analyst's prompt:
+
+- `WEEKLY` (the full review of every ticker in the window, with the rule
+  review) on the first run after a week has closed (Saturday, or Sunday or
+  Monday when Saturday's did not happen); when the newest report is more than
+  seven days old; or when the user asks for it (`/daily-run weekly`, which is
+  `preflight.py weekly`).
 - `DAILY` otherwise: orders, stops and what changed.
 
-## 0. Dashboard up?
+## 0 to 3. Preflight
 
 `curl -sf localhost:3000/api/whatsapp/status`. If it doesn't answer, start
 `pnpm dev` with `run_in_background: true` and wait (Monitor with an until-loop
-on that curl) until it does.
+on that curl) until it does. Then:
 
-Then `python3 scripts/mcp-smoke.py`: it starts the MCP server from the code on
-disk and calls the tools the run depends on. If it fails, stop: the analysis
-cannot be built. If it passes but this session has no `mcp__stock-recommender__*`
-tools (the session's own connection is down or older than the code), tell both
-agents to use the shell bridge, `python3 scripts/mcp-call.py`, described in
-their instructions, and say so in the report.
+```
+python3 scripts/preflight.py            # add `weekly` to force the weekly review
+```
 
-## 1. Zesty portfolio
+It takes a few minutes (the Zesty login and the WhatsApp sync), so run it in
+the foreground with a 10-minute timeout. In order it does:
 
-1. Baseline = the book as of the last published report: the newest
-   `.whatsapp/reports/*.portfolio.json`. Only if there is none, use
-   `curl -s localhost:3000/api/portfolio` taken before the sync. Do NOT diff
-   against the stored portfolio when a snapshot exists — a second sync in one
-   day would hide the day's trades.
-2. `curl -s -m 180 -X POST localhost:3000/api/portfolio/sync-zesty`
+0. The MCP smoke test: the server is started from the code on disk and the
+   tools the run depends on are called.
+1. The Zesty sync, and the diff against the book of the last report (the newest
+   `*.portfolio.json`, never the stored book: a second sync in a day would hide
+   the day's trades). The sync also reads the broker's orders: what rests there
+   and what filled, expired or was cancelled.
+2. The WhatsApp sync of the selected groups, judged group by group. A group in
+   error gets one disconnect and connect and one retry; a group with
+   `gap: true` gets a 14-day backfill.
+3. What became of the last report's orders (`TODAY.orders-status.md`), the
+   scorecard (`TODAY.scorecard.md`, with the rule review on a WEEKLY run) and
+   the earnings and headlines (`TODAY.events.md`) for the held longs, the ADDs
+   not held, every ticker with an open order and every name the last report
+   wanted to buy.
 
-It logs into Zesty headlessly, replaces the stored positions and cash, and
-records the day's total in the portfolio history. Diff the response against the
-baseline: new or closed positions, share-count changes, **average-cost
-changes**, and the cash delta. The response has two cash numbers:
-`cash_balance` is all the cash and counts in the book's value; `buying_power`
-is what a new order can spend, lower while a buy order is open. Zesty's average cost is the cost of the
-shares still held, so it moves on a partial sell (the sold lots leave the
-average). That is expected and reliable — report it, don't flag it. A 502 means
-the login failed (credentials in `.env.local`, or Zesty changed its login flow)
-— say so and continue with the stored portfolio, flagging that the analysis
-uses the last successful sync.
+It writes `TODAY.run.json` and ends with the lines for the analyst's prompt:
+TODAY, DEPTH, PREV, `fullDetailDays`, the session and what the prices are.
 
-3. Explain the diff with the claude.ai Zesty connector, read-only tools only
-   (load them with ToolSearch; if the connector is missing, skip this and say
-   so). No `preview_*`, `confirm_*` or `cancel_order` call belongs in steps 1
-   to 6: orders are only ever prepared in step 7, and only placed after the
-   user approves them there.
-   - Always → `get_orders` with `status: "pending"`: the open orders. Keep two
-     lists for the analyst: the resting stops (ticker, shares, stop or trailing
-     stop, level or trail %) and the open buys or sells. They are what the
-     report's "Stops" table is checked against.
-   - Shares changed → `get_orders`: the fill price and date of each trade. A
-     filled stop order is an exit already taken: say so, with the ticker.
-     When it closed a position that is an ACTIVE or AGING ADD, write it on the
-     ledger row so later runs know: `record_main_analyst_add` with the ticker, the
-     row's own `addedOn` (so the date does not move) and its note plus
-     "STOPPED OUT <date> at <price>; not re-bought until the main analyst refreshes the
-     ADD or price closes back above <stop>". Do not deactivate the row: only a
-     a SELL from the main analyst or an exited EXPIRED/INVALIDATED row is deactivated.
-   - Cash changed with no trade → `get_dividends`, then `get_movements`.
-   - Always → `get_movements` with `type: "deposits"` and again with
-     `"withdrawals"`: compare the newest movement date with
-     `performance_anchor.lastFlowDate` in the sync response. A newer movement
-     means the performance numbers are overstated or understated until
-     `scripts/set-performance-anchor.ts` is refreshed — say so, and tell the
-     analyst in step 4.
+**Exit code 2 is a stop.** Read the `STOP:` line and act on it:
 
-Report the diff in one or two lines and pass it to the analyst in step 4.
+- The dashboard does not answer: start it and run the preflight again.
+- The MCP smoke test failed: the analysis cannot be built. Stop.
+- WhatsApp is `qr` or `disconnected`: the user has to scan the QR at
+  http://localhost:3000. Stop (unattended: notify).
+- The reconnect failed with "The browser is already running for
+  …/.stock-recommender-wa/session": an orphaned headless Chrome holds the
+  session lock. It is the app's own automation browser, not the user's Chrome:
+  kill only processes whose command line has
+  `--user-data-dir=<home>/.stock-recommender-wa/session`, then run the
+  preflight again. The session is on disk, so no QR is needed.
+- The sync failed twice: stop and show the error.
 
-## 2. WhatsApp messages
+**Not a stop:** a Zesty login that failed (the preflight says so and goes on
+with the stored book: tell the analyst the book is the last successful sync),
+or a script of step 3 that failed (tell the analyst which block is missing).
+If the smoke test passes but this session has no `mcp__stock-recommender__*`
+tools, tell both agents to use the shell bridge, `python3 scripts/mcp-call.py`,
+and say so in the report.
 
-1. From `/api/whatsapp/status`, check `status` is `connected`, and take the
-   groups with `selected: true` (the analysis groups — selection lives in code).
-   If it's `qr` or `disconnected`, stop: the user has to scan the QR at
-   http://localhost:3000.
-2. `POST /api/whatsapp/sync-job` with
-   `{"groups":[{"jid","name"}…],"backfill":false}`. A 400 "Ya hay una
-   sincronización en curso" means a job is already running — just wait on it.
-3. Poll `GET /api/whatsapp/sync-job` until `job.status` isn't `running`
-   (Monitor with an until-loop, not repeated manual calls).
-4. **Judge the groups, not the job.** The job says `done` even when every group
-   failed, so read each group's `status` and `error`.
-5. The job recovers by itself from `Attempted to use detached Frame` (WhatsApp
-   Web reloaded inside the headless browser while status still says connected):
-   it restarts the client once and retries, and sets `job.reconnected: true`.
-   Only if groups still end in `error`, do it by hand:
-   - `POST /api/whatsapp/disconnect`, then `POST /api/whatsapp/connect`, and
-     wait for `status: connected`.
-   - If connect fails with "The browser is already running for
-     …/.stock-recommender-wa/session", an orphaned headless Chrome still holds
-     the session lock. It is the app's own automation browser, not the user's
-     Chrome: kill only processes whose command line has
-     `--user-data-dir=<home>/.stock-recommender-wa/session`, then connect
-     again. The session is on disk, so no QR is needed.
-   - Retry the sync once. If it fails again, stop and show the error.
-6. **Check for holes.** A group with `gap: true` stopped paging before it
-   reached the point the previous sync had covered, so messages may be missing
-   in between: run the job again with `"backfill": true` (14 days) and report
-   it. Do the same when step 0 had to start the dashboard and a group still
-   shows `newMessages: 0` on a trading day.
-7. Report `newMessages` and `newMedia` per group — what this sync added.
-   `messagesReceived` and `mediaDownloaded` are the group's running totals, not
-   the day's intake. The live listener stores messages as they arrive, so a
-   small number here does not mean a quiet day.
+Then, what the script cannot judge:
 
-## 3. Scorecard and events
-
-Two scripts, no model call. Run them after the sync and hand the analyst the
-two files:
-
-1. `python3 scripts/scorecard.py > .whatsapp/reports/TODAY.scorecard.md` prices
-   every call of the last 45 days of reports: which orders were taken, what
-   each stance did against SPY and SMH, and whether confidence ranked the
-   outcomes.
-2. `python3 scripts/events.py T1 T2 … > .whatsapp/reports/TODAY.events.md` with
-   the held longs, the active ADDs not held (`main_analyst_adds`, or the "Sectors of
-   active ADDs not held" line of the last bundle) and any ticker with an open
-   order: the earnings dates of the next 21 days and the headlines of the last
-   three.
-
-If a script fails or a source is rate-limited, go on and tell the analyst which
-block is missing; neither blocks the run.
+- **Average cost.** Zesty's average cost is the cost of the shares still held,
+  so it moves on a partial sell. That is expected and reliable: report it,
+  don't flag it. `cash_balance` is all the cash and counts in the book's value;
+  `buying_power` is what a new order can spend, lower while a buy is open.
+- **A stop that filled.** When the orders status shows a filled stop that
+  closed a position which is an ACTIVE or AGING ADD, write it on the ledger row:
+  `record_main_analyst_add` with the ticker, the row's own `addedOn` (so the
+  date does not move) and its note plus "STOPPED OUT <date> at <price>; not
+  re-bought until the main analyst refreshes the ADD or price closes back above
+  <stop>". Do not deactivate the row: only a SELL from the main analyst or an
+  exited EXPIRED/INVALIDATED row is deactivated.
+- **Cash that moved with no trade**, with the claude.ai Zesty connector,
+  read-only tools only (load them with ToolSearch; if the connector is missing,
+  skip this and say so): `get_dividends`, then `get_movements`. And always
+  `get_movements` with `type: "deposits"` and again with `"withdrawals"`: a
+  movement newer than the preflight's "last deposit or withdrawal on record"
+  means the performance numbers are off until
+  `scripts/set-performance-anchor.ts` is refreshed. Say so, and tell the
+  analyst.
+- No `preview_*`, `confirm_*` or `cancel_order` call belongs in steps 0 to 6:
+  orders are only ever prepared in step 7, and only placed after the user
+  approves them there.
+- `newMessages` and `newMedia` are what this sync added. The live listener
+  stores messages as they arrive, so a small number does not mean a quiet day.
 
 ## 4. Prepare the corpus, then analyse
 
@@ -172,22 +155,24 @@ not a wrong one.
 
 ### 4b. `stock-analyst` (Opus at high effort)
 
-Put TODAY in the paths and prompt. `PREV` is the newest earlier
-`.whatsapp/reports/*.md`; `N` is the days between that report and TODAY,
-minimum 2.
+Fill the prompt from the preflight's last lines and from `TODAY.run.json`:
+TODAY, DEPTH, PREV and `N` (`fullDetailDays`).
 
 > Run the analysis for TODAY at depth DEPTH (the playbook's REPORT DEPTH). The
 > Zesty portfolio and WhatsApp corpus were just synced, the noise pass ran, and
 > the media was digested.
-> Zesty change since the last report: <positions, average costs and cash
-> before → after, with the fills and credits from step 1; any performance-anchor
-> warning>. Open orders at Zesty: <resting stops: ticker, shares, type, level
-> or trail %; open buys and sells; or "none">. Buying power: <buying_power>.
+> When this is written: <the preflight's "Session" line: the session whose
+> closes the prices are, and whether the market has opened>. The orders are
+> for the next open. Title the report with the session and "before the open".
+> Zesty change since the last report: <the preflight's diff; any
+> performance-anchor warning; or "the Zesty login failed: the book is the last
+> successful sync">. Open orders at Zesty: <the preflight's resting stops and
+> open buys and sells; or "none">. Buying power: <buying_power>.
 > Media notes from the digester: <stale editions, unreadable files>.
-> The previous report is PREV. The scorecard is
-> `.whatsapp/reports/TODAY.scorecard.md` and the earnings and headlines are
-> `.whatsapp/reports/TODAY.events.md`: read both before you write <or: which
-> one is missing>.
+> The previous report is PREV. Read these three before you write <or: which
+> one is missing>: `.whatsapp/reports/TODAY.orders-status.md` (what became of
+> PREV's orders, from the broker), `.whatsapp/reports/TODAY.scorecard.md` and
+> `.whatsapp/reports/TODAY.events.md`.
 > 1. Call `corpus_status`; if the newest message is over a day old, stop and say
 >    so. If it shows undigested media, digest it per your step 0.
 > 2. Call `analysis_bundle` with `fullDetailDays: N`.
@@ -205,12 +190,24 @@ minimum 2.
 >      and trading days held; which goes first when the theme is over its cap,
 >      the trim or the hedge.
 >    - Stops: one row per held long with the report's stop, what rests at Zesty
->      (from the open orders above) and the exact order to place when nothing
->      rests or it no longer matches.
+>      (from the bundle's "Orders at the broker" block) and the exact order to
+>      place when nothing rests or it no longer matches. A trailing level comes
+>      from the bundle's "Highest close since entry" table.
 >    - ADDs not held: one line each, a sized BUY or its single blocker, with the
 >      swap when the blocker is a cap.
 >    - The benchmark row (SMH) while the book trails it on 6M and YTD.
->    - Scorecard: two lines on what it shows, and what you changed because of it.
+>    - Costs, from the bundle's "Costs" section: the commission of each order
+>      in $ and of the session's orders together, what the cash earns per week,
+>      what the hedges' capital gives up per week, and each window's return
+>      against the Performance table's Cash column.
+>    - Last report's orders, from the orders status: one line per order that
+>      did not fill, saying re-issued, replaced or dropped and why; fills at
+>      their fill price.
+>    - Risk: for every BUY, the $ lost at its stop and that as a % of the book,
+>      against the 0.75% budget; held names over twice the budget.
+>    - Scorecard: two lines on what it shows, and what you changed because of
+>      it. On a WEEKLY run, the rule review in three lines and at most one
+>      "Proposed rule change:".
 >    - Winners vs losers: the share of the book in positions losing money vs
 >      making it, and whether the largest weights are the best or worst trends
 >      (Chartizard rule 2).
@@ -248,6 +245,11 @@ minimum 2.
 >    (whole shares), `limitPrice` or `stopPrice` or `trailPercent` (numbers),
 >    `timeInForce` (day|gtc), `source` ("order" or "stop"), `stopTriggered`
 >    (true when a fired stop or an invalidation is the reason for the sale),
+>    `mustFill` (true for a sale a rule requires; its `limitPrice` is then 0.5%
+>    under the last regular-session price, per the playbook's HOW ORDERS ARE
+>    PRICED), `attachStop` (for a BUY that opens a new position: the stop
+>    level, a number, sent with the buy, and that position then has no
+>    separate stop entry; null otherwise),
 >    `condition` (anything the broker cannot enforce, such as "do not buy if it
 >    opens under $113.40", or null), `waitsFor` (the order that must fill first,
 >    such as "BUY 10 EBAY", or null) and `why` (one line). An empty list when
@@ -258,32 +260,31 @@ minimum 2.
 
 ## 5. Publish to the web
 
-1. Read the JSON and check its shape: a non-empty `recommendations` array;
-   every row has a ticker, an action in BUY|SELL|HOLD, a numeric confidence and
-   a reasoning string. Fix obvious shape problems yourself.
-2. Check the numbers against the market and the book. For every BUY row and
-   every SELL row of a held ticker:
-   - `curl -s 'localhost:3000/api/prices?tickers=A,B,…'` and compare with the
-     first `$` number in `entryPrice`: more than 2% apart is a stale or wrong
-     price.
-   - The order's shares × price matches its stated `$` amount within 2%.
-   - A SELL is for no more shares than are held; the BUYs together cost no
-     more than `buying_power` (the cash balance when it is null).
-   - Every held ticker has a row.
-   If any check fails, or the content otherwise looks wrong, stop and ask
-   instead of publishing.
-3. Back up the live set: `GET /api/recommendations` saved to
-   `.whatsapp/recs-backups/<YYYYMMDD-HHMMSS>.json`.
-4. `POST /api/recommendations` with
-   `{"recommendations": [...], "narrative": <the full TODAY.md text>, "date": "TODAY"}`
-   (build the body with `jq` or `python3` from the two files). It REPLACES the
-   whole table, not merges. With `narrative` it also stores the report for the
-   dashboard and appends each verdict to the per-ticker wiki.
-5. `GET /api/recommendations` again and confirm the count, `generatedAt` and
-   `narrativeAt` changed, and that the POST reported `wikiUpdated` equal to the
-   row count.
-6. Save the book this report was written against, for tomorrow's diff:
-   `curl -s localhost:3000/api/portfolio > .whatsapp/reports/TODAY.portfolio.json`
+```
+python3 scripts/publish-check.py TODAY            # the checks alone
+python3 scripts/publish-check.py TODAY --publish  # checks, backup, publish, verify, snapshot
+```
+
+The checks, the same every day: the shape of every row; each BUY's and held
+SELL's entry price within 2% of the market; shares × price against the stated
+$; no sale for more shares than are held and buys that fit in buying power;
+every held ticker has a row; no new position opened within three sessions of
+its own results; no BUY that loses more than the risk budget at its stop; the
+orders file agrees with the order rows, and a must-fill sale is priced under
+the market.
+
+Run it without `--publish` first. On `FAIL`, fix what is a slip of shape or
+arithmetic in the JSON yourself and run it again; anything else (a price that
+is off, a buy into results, a size over the risk budget) goes back to the user:
+stop and ask instead of publishing. Unattended, do not publish: notify with the
+failed check and end the run.
+
+With `--publish` it backs up the live set to `.whatsapp/recs-backups/`, POSTs
+`{"recommendations", "narrative", "date"}` to `/api/recommendations` (which
+REPLACES the whole table, stores the report for the dashboard and appends each
+verdict to the per-ticker wiki), confirms the dashboard took it, and saves the
+book this report was written against to `TODAY.portfolio.json` for tomorrow's
+diff.
 
 The digests from step 4 are already in the database, so the web sees them
 without this step.
@@ -292,12 +293,14 @@ without this step.
 
 The computer stays home, so the report also goes to a private Claude artifact
 the user opens from the Claude app on the phone. It is one page with one fixed
-link, replaced every night:
+link, replaced on every run:
 https://claude.ai/artifact/QemrZbre8TisFcb3VT9zXx
 
 1. `pnpm exec tsx scripts/report-page.ts TODAY` writes
-   `.whatsapp/reports/TODAY.html` from the two files of step 4: the orders
-   first, the standing conditionals, the book, then the full report. It is a
+   `.whatsapp/reports/TODAY.html` from the files of step 4: the orders
+   first, then the same orders as one block of text to paste into the Claude
+   app (where the Zesty connector previews them and places what the user
+   approves there), the standing conditionals, the book, then the full report. It is a
    plain renderer — no model call, no API credits. Its banner says what the
    prices are (closes, pre-market, intraday or a weekend) from the report date
    and the New York clock, so render right after the analysis.
@@ -316,10 +319,13 @@ has the report.
 
 The report's orders and the stops it asks for can be sent to the broker from
 here, but never on the run's own authority: the user approves each one first.
-Skip this step, and say so, when the run is unattended (a scheduled or `/loop`
-run, or no answer to the question below), when `TODAY.orders.json` is empty,
-or when the Zesty connector is missing. The phone page already carries the
-orders either way.
+Skip this step, and say so, when the run is unattended (`/daily-run
+unattended`, a scheduled or `/loop` run, or no answer to the question below),
+when `TODAY.orders.json` is empty, or when the Zesty connector is missing. The
+phone page already carries the orders either way, as text the user can paste
+into the Claude app. `/daily-run orders` runs this step alone on today's
+report: sync Zesty first (`python3 scripts/preflight.py --no-sync` is not
+enough; POST `/api/portfolio/sync-zesty`) so the open orders are current.
 
 1. Read `.whatsapp/reports/TODAY.orders.json`. Check each order against the
    book and the open orders of step 1 (re-read both if the run took long):
@@ -339,8 +345,16 @@ orders either way.
 2. `get_market_status`, and `get_us_trade_options` for any ticker whose order
    type has not been used before. Translate each order:
    - a BUY or SELL becomes a **limit** order, `timeInForce: day`, at the
-     report's price. A sale with `stopTriggered: true` is priced 1% under the
-     report's price so that it fills at the open. Placed outside regular hours
+     file's `limitPrice`. A sale with `mustFill: true` is re-priced at 0.5%
+     under the last regular-session price when that has moved since the report
+     (`/api/prices` gives it, with any pre-market print beside it), so that an
+     ordinary gap still fills it; say the new price in the table.
+   - a BUY with `attachStop` becomes `preview_us_bracket_order` with
+     `orderClass: "oto"`, `orderType: "limit"`, the limit price and
+     `stopLoss: {stopPrice}`, `timeInForce: "gtc"` (the stop takes the order's
+     duration, so a day order would lose its stop at the close). The stop
+     starts to rest when the buy fills. Say in the table that the buy itself
+     now rests until it fills or is cancelled. Placed outside regular hours
      without `extendedHours`, it waits for the 09:30 New York open; set
      `extendedHours: true` only when the user asks to trade before or after
      the session.
@@ -386,5 +400,7 @@ send it by hand at the open instead.
 - The report path, the portfolio snapshot path and the backup path.
 - Which publish checks ran and passed.
 - The phone page link, and whether tonight's report is on it.
+- The last report's orders: which filled and at what price, which expired,
+  and what the new report did with each.
 - The orders offered in step 7: which were approved and now rest at Zesty,
   which were declined, rejected or left waiting for a fill.

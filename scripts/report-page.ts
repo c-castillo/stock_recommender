@@ -5,12 +5,15 @@
  * step 3 saves) and writes `<date>.html`: the orders first, then the book,
  * then the full report in collapsible sections. /daily-run publishes that
  * file as a private Claude artifact, so the report can be read and acted on
- * away from the computer. No database, no network, no model call.
+ * away from the computer. When `<date>.orders.json` exists it adds the
+ * orders as one block of text to paste into the Claude app, where the Zesty
+ * connector previews them and places the ones approved there.
+ * No database, no network, no model call.
  *
  * Usage: pnpm exec tsx scripts/report-page.ts [YYYY-MM-DD] [out.html]
  * Without a date it takes the newest report.
  */
-import { readFileSync, writeFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 const DIR = join(process.cwd(), ".whatsapp", "reports");
@@ -131,6 +134,67 @@ const orderCards = orders
   })
   .join("\n");
 
+// ── The same orders as text for the Claude app ───────────────────────────────
+
+interface BrokerOrder {
+  ticker: string;
+  side: "buy" | "sell";
+  type: string;
+  qty: number;
+  limitPrice?: number | null;
+  stopPrice?: number | null;
+  trailPercent?: number | null;
+  attachStop?: number | null;
+  timeInForce?: string;
+  source?: string;
+  mustFill?: boolean;
+  condition?: string | null;
+  waitsFor?: string | null;
+}
+
+const ordersPath = join(DIR, `${date}.orders.json`);
+const brokerOrders: BrokerOrder[] = existsSync(ordersPath)
+  ? (JSON.parse(readFileSync(ordersPath, "utf8")).orders ?? [])
+  : [];
+
+const usd = (n?: number | null) => (n != null ? `$${n.toFixed(2)}` : "?");
+const orderLine = (o: BrokerOrder) => {
+  const verb = `${o.side.toUpperCase()} ${o.qty} ${o.ticker}`;
+  let how: string;
+  if (o.type === "trailing_stop") how = `trailing stop ${o.trailPercent}%, good till cancelled`;
+  else if (o.type === "stop") how = `stop ${usd(o.stopPrice)}, good till cancelled`;
+  else if (o.attachStop != null)
+    how = `limit ${usd(o.limitPrice)} with a stop attached at ${usd(o.attachStop)} (one-triggers-other, good till cancelled)`;
+  else how = `limit ${usd(o.limitPrice)}, ${o.timeInForce === "gtc" ? "good till cancelled" : "day"}`;
+  const notes = [
+    o.mustFill ? "must fill: re-price 0.5% under the last price if it has moved" : "",
+    o.condition ? `condition: ${o.condition}` : "",
+    o.waitsFor ? `only after ${o.waitsFor} has filled` : "",
+  ].filter(Boolean);
+  return `${verb}: ${how}${notes.length ? ` [${notes.join("; ")}]` : ""}`;
+};
+
+// One message the Claude app can act on with the Zesty connector. It asks for
+// previews and approval one by one, never for anything to be placed outright.
+const paste = brokerOrders.length
+  ? [
+      `Orders from my report of ${date}. Use the Zesty connector.`,
+      "First read my open orders and positions, and skip any order below that already rests or no longer fits the shares I hold.",
+      "Then preview each remaining one at the current price, show me every preview with its total and commission, and place only the ones I approve, one at a time. Do not place anything I have not approved in this chat.",
+      "",
+      ...brokerOrders.map((o, n) => `${n + 1}. ${orderLine(o)}`),
+    ].join("\n")
+  : "";
+
+const pasteBlock = paste
+  ? `<section class="block" id="send">
+  <h2>Place them from the Claude app</h2>
+  <p class="note">Copy this into a new chat in the Claude app. It previews each order at Zesty and places only what you approve there.</p>
+  <textarea id="paste" class="card paste" readonly rows="${Math.min(brokerOrders.length + 6, 18)}">${esc(paste)}</textarea>
+  <button id="copy" class="copy" type="button">Copy the orders</button>
+</section>`
+  : "";
+
 const heldRows = held
   .map(({ r, shares, amount }) => {
     const hedge = /—\s*hedge\b/i.test(r.reasoning) ? ' <span class="tag">hedge</span>' : "";
@@ -184,6 +248,21 @@ const day = new Date(`${date}T12:00:00`).toLocaleDateString("en-GB", {
 // page is rendered right after: closes only once the session of that date has
 // ended. Exchange holidays are not known here and read as a normal weekday.
 function priceNote(): string {
+  // The preflight records which session the run was written on; trust it over
+  // the clock, which only knows when this page was rendered.
+  const runPath = join(DIR, `${date}.run.json`);
+  if (existsSync(runPath)) {
+    const run = JSON.parse(readFileSync(runPath, "utf8")) as { session?: string; phase?: string };
+    if (run.session && run.phase) {
+      const closes = `the closes of ${new Date(`${run.session}T12:00:00`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}`;
+      if (run.phase === "pre-market")
+        return `Written before the open. Prices are ${closes}; stops that wait for a close were decided on them. Orders are for today's open.`;
+      if (run.phase === "open")
+        return `Written while the market was open. The last close is ${closes.slice(14)}; stops that wait for a close are not decided.`;
+      if (run.phase === "weekend") return `Markets are closed. Prices are ${closes}. Orders are for Monday's open.`;
+      return `Prices are ${closes}. Orders are for the next open.`;
+    }
+  }
   const ny = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
     hour: "2-digit", minute: "2-digit", hour12: false,
@@ -211,7 +290,7 @@ function priceNote(): string {
     return `Prices are the closes of ${short(closed)}.`;
   }
   if (date === nyDate && minutes < 9 * 60 + 30) {
-    return "Pre-market run. Prices are the previous session's closes; stops that wait for a close are not decided.";
+    return "Written before the open. Prices are the previous session's closes; stops that wait for a close were decided on them.";
   }
   if (date === nyDate && minutes < 16 * 60) {
     return `Intraday run at ${part("hour")}:${part("minute")} New York. Prices are not closes; stops that wait for a close are not decided.`;
@@ -279,6 +358,8 @@ dl { display: grid; grid-template-columns: 1fr; gap: 6px; }
 .order .src { color: var(--muted); font-size: .82rem; }
 .done { display: flex; align-items: center; gap: 8px; font-weight: 800; padding-top: 8px; border-top: 2px dashed var(--line); }
 .done input { width: 22px; height: 22px; accent-color: var(--green); }
+.paste { width: 100%; box-sizing: border-box; padding: 12px; font: inherit; font-size: .85rem; line-height: 1.45; color: var(--ink); resize: vertical; }
+.copy { margin-top: 10px; width: 100%; padding: 12px; font: inherit; font-weight: 800; color: var(--on-accent); background: var(--yellow); border: 2px solid var(--line); border-radius: 12px; box-shadow: 4px 4px 0 var(--drop); }
 .order:has(.done input:checked) { opacity: .55; }
 
 .list { list-style: none; padding: 0; gap: 0; }
@@ -334,6 +415,8 @@ tr:last-child td { border-bottom: 0; }
     ${orderCards || `<p class="note">No orders in this report.</p>`}
   </section>
 
+  ${pasteBlock}
+
   ${conditionals}
 
   <section class="block" id="book">
@@ -370,6 +453,22 @@ ${sections
   // "Sent" ticks are a per-phone convenience, kept for this report's date only.
   var KEY = 'report-sent:${date}', sent = {};
   try { sent = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) {}
+  // Copy the orders. The clipboard API is often closed to an embedded page,
+  // so fall back to selecting the text, which a long press can then copy.
+  var copy = document.getElementById('copy'), paste = document.getElementById('paste');
+  if (copy && paste) {
+    copy.addEventListener('click', function () {
+      paste.focus();
+      paste.select();
+      var done = function () { copy.textContent = 'Copied'; };
+      var manual = function () {
+        try { if (document.execCommand('copy')) return done(); } catch (e) {}
+        copy.textContent = 'Selected: now copy';
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(paste.value).then(done, manual);
+      else manual();
+    });
+  }
   document.querySelectorAll('.done input').forEach(function (box) {
     box.checked = !!sent[box.dataset.key];
     box.addEventListener('change', function () {

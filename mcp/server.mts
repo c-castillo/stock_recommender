@@ -56,7 +56,7 @@ import { SYSTEM_PROMPT } from "@/lib/ai/playbook";
 import { digestSchema, PROMPT as DIGEST_PROMPT, STUDIES_PROMPT, TRANSCRIBE_PROMPT } from "@/lib/ai/media-prompts";
 import { loadAllWikis } from "@/lib/ai/wiki";
 import { readAllMemories } from "@/lib/ai/memory-store";
-import { fetchCurrentPrices } from "@/lib/market/quotes";
+import { fetchQuotes, describeQuote } from "@/lib/market/quotes";
 import { fetchRecentFilings, renderFilingsBlock } from "@/lib/market/filings";
 import { PRUNABLE_GROUPS } from "@/lib/whatsapp/analysis-groups";
 import { RELEVANCE_INSTRUCTIONS } from "@/lib/ai/relevance";
@@ -81,8 +81,11 @@ const FILINGS_WINDOW_DAYS = 45;
 /** The Haiku pass's rules, minus its output-format line (the tool call is the format). */
 const RELEVANCE_RULES = RELEVANCE_INSTRUCTIONS.replace(/\n\nReturn one verdict per message[\s\S]*$/, "");
 
+/** A message time on the host's clock, the one the user and the reports use.
+ *  It used to print UTC with no label, which read as three hours ahead. */
 function fmtTs(ts: number): string {
-  return new Date(ts * 1000).toISOString().replace("T", " ").slice(0, 16);
+  const d = new Date(ts * 1000);
+  return `${d.toLocaleDateString("en-CA")} ${d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`;
 }
 
 /** Media in the window that sync never digested — the analysis can't see it. */
@@ -579,8 +582,11 @@ export function buildMcpServer(): McpServer {
     {
       title: "Live quotes",
       description:
-        "Live price and 200-day-MA slope (% change over 20 trading days) for any " +
-        "tickers. MA200 slope up = long bias, down = avoid or short.",
+        "Price and 200-day-MA slope (% change over 20 trading days) for any " +
+        "tickers. Price is the regular session's: live while it is open, the official " +
+        "close otherwise, and the 'What it is' column says which. A pre-market or " +
+        "after-hours trade is shown beside it and is never the close. " +
+        "MA200 slope up = long bias, down = avoid or short.",
       inputSchema: {
         tickers: z.array(z.string()).min(1).max(25).describe("e.g. ['NVDA','SPY']"),
       },
@@ -588,17 +594,17 @@ export function buildMcpServer(): McpServer {
     },
     async ({ tickers }) => {
       const symbols = tickers.map((t) => t.trim().toUpperCase()).filter(Boolean);
-      const [prices, slopes] = await Promise.all([
-        fetchCurrentPrices(symbols),
+      const [quotes, slopes] = await Promise.all([
+        fetchQuotes(symbols),
         fetchMa200Slopes(symbols),
       ]);
       return text(
-        "Ticker|Price|MA200 slope\n---|---|---\n" +
+        "Ticker|Price|What it is|MA200 slope\n---|---|---|---\n" +
           symbols
             .map((t) => {
-              const p = prices[t];
+              const q = quotes[t];
               const s = slopes[t];
-              return `${t}|${p != null ? `$${p.toFixed(2)}` : "—"}|${
+              return `${t}|${q ? `$${q.price.toFixed(2)}` : "—"}|${q ? describeQuote(q) : "—"}|${
                 s != null ? `${s >= 0 ? "↑+" : "↓"}${s.toFixed(2)}%` : "—"
               }`;
             })
@@ -625,7 +631,7 @@ export function buildMcpServer(): McpServer {
     async ({ includeNarrative }) => {
       const recs = loadAiRecommendations();
       if (recs.length === 0) return text("No stored recommendations yet.");
-      const when = new Date(recs[0].generatedAt * 1000).toISOString().slice(0, 16).replace("T", " ");
+      const when = fmtTs(recs[0].generatedAt);
       const table =
         `# Stored recommendations (generated ${when} UTC)\n\n` +
         "Action|Ticker|Conf|Entry|Target|Stop|Reasoning\n---|---|---|---|---|---|---\n" +

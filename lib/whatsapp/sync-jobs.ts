@@ -260,11 +260,12 @@ function setSyncCursor(jid: string, ts: number) {
 
 /**
  * WhatsApp Web reloaded (or the tab died) underneath puppeteer: the client
- * still reports "connected" but every page call throws. Only a browser restart
+ * still reports "connected" but every page call throws. After a night idle it
+ * shows up as "ProtocolError … Promise was collected" instead. Only a browser restart
  * fixes it, so these are the errors worth one automatic reconnect.
  */
 function isDeadPage(err: unknown): boolean {
-  return /detached Frame|Target closed|Session closed|Execution context was destroyed/i.test(
+  return /detached Frame|Target closed|Session closed|Execution context was destroyed|Promise was collected|ProtocolError/i.test(
     errText(err)
   );
 }

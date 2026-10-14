@@ -5,7 +5,7 @@
 
 Prints, per ticker, from two years of Yahoo bars: the 21/55/144/200-day
 averages with their direction, rate-of-change momentum on three horizons, the
-weekly swing pivots and the last ten weekly bars. It does not interpret
+weekly swing pivots and the last ten weekly bars (each dated by its Monday). It does not interpret
 anything: the trend, the anchors and the Fibonacci levels are read off this
 output with the technical-analysis and fibonacci-charts skills.
 """
@@ -29,13 +29,27 @@ def bars(ticker, interval):
     ]
 
 
+def by_week(rows):
+    """One bar per week. Yahoo returns the running week twice: the bar that
+    started on Monday and a second one stamped with the last trade."""
+    out = {}
+    for day, h, l, c in rows:
+        monday = day - dt.timedelta(days=day.weekday())
+        if monday in out:
+            _, h0, l0, _ = out[monday]
+            out[monday] = (monday, max(h, h0), min(l, l0), c)
+        else:
+            out[monday] = (monday, h, l, c)
+    return [out[k] for k in sorted(out)]
+
+
 def sma(closes, n, end=None):
     end = len(closes) if end is None else end
     return sum(closes[end - n:end]) / n
 
 
 def read(ticker):
-    d, w = bars(ticker, "1d"), bars(ticker, "1wk")
+    d, w = bars(ticker, "1d"), by_week(bars(ticker, "1wk"))
     c = [r[3] for r in d]
     print(f"\n=== {ticker} · last bar {d[-1][0]} · {c[-1]:.2f}")
     for n in (21, 55, 144, 200):
@@ -59,11 +73,21 @@ def read(ticker):
     for i in range(3, len(w)):
         a, b = i - 3, min(len(w), i + 4)
         if highs[i] == max(highs[a:b]):
-            pivots.append(f"{w[i][0]:%y-%m-%d} H {highs[i]:.2f}")
+            pivots.append(f"{w[i][0] - dt.timedelta(days=w[i][0].weekday()):%y-%m-%d} H {highs[i]:.2f}")
         if lows[i] == min(lows[a:b]):
-            pivots.append(f"{w[i][0]:%y-%m-%d} L {lows[i]:.2f}")
+            pivots.append(f"{w[i][0] - dt.timedelta(days=w[i][0].weekday()):%y-%m-%d} L {lows[i]:.2f}")
     print("  weekly pivots (the last ones are unconfirmed): " + " · ".join(pivots[-14:]))
-    print("  last 10 weeks H/L/C: " + " | ".join(f"{r[0]:%m-%d} {r[1]:.2f}/{r[2]:.2f}/{r[3]:.2f}" for r in w[-10:]))
+    # Yahoo stamps the running week with the time of its last trade, not with
+    # its Monday, so it read as a week of its own dated today. Every bar is
+    # labelled by the Monday it belongs to, and the running one says so.
+    monday = lambda day: day - dt.timedelta(days=day.weekday())  # noqa: E731
+    this_week = monday(dt.date.today())
+    weeks = [
+        f"{monday(r[0]):%m-%d}{' (in progress)' if monday(r[0]) == this_week and dt.date.today().weekday() < 5 else ''} "
+        f"{r[1]:.2f}/{r[2]:.2f}/{r[3]:.2f}"
+        for r in w[-10:]
+    ]
+    print("  last 10 weeks, by their Monday, H/L/C: " + " | ".join(weeks))
     top = max(d, key=lambda r: r[1])
     print(f"  2y high {top[1]:.2f} on {top[0]} · low since {min(r[2] for r in d if r[0] >= top[0]):.2f}")
 

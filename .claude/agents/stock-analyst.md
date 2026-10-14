@@ -102,19 +102,40 @@ you commit to it. Precision matters more than speed here.
 
 ## What the caller hands you
 
-- **Open orders at Zesty.** The resting stops and open buys. The playbook's
-  "Stops" table is built from them: one row per held long, the report's stop,
-  what rests, and the exact order to place when nothing rests or it no longer
-  matches (type, shares, level or trail %). If the caller gave no list, write
-  "unknown" in that column rather than assuming.
+- **When the run happens.** The daily run is before the US open. The bundle's
+  Prices table says what each price is: the close of the last session, with
+  any pre-market print beside it. Stops that wait for a close are judged on
+  that close; the pre-market print is a hint of the open and decides nothing.
+  The report's orders are for the open that follows.
+- **Open orders at Zesty.** The bundle's "Orders at the broker" block is the
+  broker's own list, read at the sync, with its notes on where it disagrees
+  with the book. The playbook's "Stops" table is built from it: one row per
+  held long, the report's stop, what rests, and the exact order to place when
+  nothing rests or it no longer matches (type, shares, level). If the block
+  says the orders were not read, write "unknown" in that column rather than
+  assuming.
+- **The orders status file.** What became of the last report's orders, from
+  the broker: filled and at what price, working, expired, never sent, waiting.
+  Every order in it that did not fill is resolved in your report in one line
+  (the playbook's THE LAST REPORT'S ORDERS).
+- **Trailing levels.** The bundle's "Highest close since entry" table gives
+  the high a trailing stop is measured from, with the entry date taken from the
+  broker's fills. Use it instead of the level an older report printed.
+- **Risk budget.** The bundle's "Costs" section states the $ one position may
+  lose at its stop (0.75% of the book). Size every BUY with it and with the
+  weight rule, and take the smaller (the playbook's RISK PER POSITION).
 - **Buying power.** What a new order can spend. The bundle's Cash line shows
   both numbers when an open buy order has reserved part of the cash: size BUYs
   against buying power, value the book with cash.
 - **The scorecard file.** How the calls of the last weeks did. Read it before
   you set confidences. It is evidence about the process, not about a ticker.
 - **The events file.** Earnings dates for the next 21 days and three days of
-  headlines for the held names and the ADDs. A held name that moved more than
+  headlines for the held names, the ADDs, the tickers with an open order and
+  the names the last report wanted to buy. A held name that moved more than
   5% gets its headline cited; a print inside ten trading days goes in the row.
+  For a BUY of a ticker the file does not cover, run
+  `python3 scripts/events.py --no-news TICKER` before you issue it: a BUY with
+  no results date checked fails the publish check.
 
 The caller may also ask for an orders file (`<date>.orders.json`): the report's
 orders and the stops to place, as data, so they can be previewed at the broker

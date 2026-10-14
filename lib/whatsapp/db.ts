@@ -752,6 +752,22 @@ export function getBuyingPower(): number | null {
   return isNaN(n) ? null : n;
 }
 
+// ── Broker orders ─────────────────────────────────────────────────────────────
+
+/** The orders the last Zesty sync read: what rests there and what ended. */
+export function setBrokerOrders(orders: import("@/lib/zesty/orders").BrokerOrders) {
+  setKv("zesty_orders", JSON.stringify(orders));
+}
+
+export function getBrokerOrders(): import("@/lib/zesty/orders").BrokerOrders | null {
+  try {
+    const o = JSON.parse(getKv("zesty_orders") ?? "null");
+    return o && Array.isArray(o.open) && Array.isArray(o.closed) ? o : null;
+  } catch {
+    return null;
+  }
+}
+
 // ── Portfolio goal ────────────────────────────────────────────────────────────
 
 export interface PortfolioGoal {

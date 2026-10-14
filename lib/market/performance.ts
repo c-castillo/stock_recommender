@@ -19,6 +19,7 @@ import {
   setRecordedPeak,
   type PerformanceAnchor,
 } from "@/lib/whatsapp/db";
+import { CASH_APR, cashReturn } from "@/lib/market/costs";
 
 /** Benchmarks: broad market, the Nasdaq the book's beta comes from, and semis. */
 const BENCHMARKS = ["SPY", "QQQ", "SMH"];
@@ -216,8 +217,8 @@ export function renderPerformance(p: PerformanceReading | null): string {
     `\n## Performance (money-weighted, net of deposits/withdrawals)\n` +
     `Current value ${num(p.currentValue)} · peak ${num(p.peak.value)} on ${p.peak.date} · ` +
     `drawdown from peak **${pc(p.drawdownPct)}**\n\n` +
-    "Window|From|StartVal|NetFlows|Gain|Return|SPY|QQQ|SMH|vs SPY\n" +
-    "---|---|---|---|---|---|---|---|---|---\n";
+    "Window|From|StartVal|NetFlows|Gain|Return|SPY|QQQ|SMH|vs SPY|Cash\n" +
+    "---|---|---|---|---|---|---|---|---|---|---\n";
 
   for (const w of p.windows) {
     const spy = bench(w, "SPY")?.pct;
@@ -226,11 +227,15 @@ export function renderPerformance(p: PerformanceReading | null): string {
       `**${pc(w.returnPct)}**|${spy != null ? pc(spy) : "—"}|` +
       `${bench(w, "QQQ") ? pc(bench(w, "QQQ")!.pct) : "—"}|` +
       `${bench(w, "SMH") ? pc(bench(w, "SMH")!.pct) : "—"}|` +
-      `${spy != null ? pc(w.returnPct - spy) : "—"}\n`;
+      `${spy != null ? pc(w.returnPct - spy) : "—"}|` +
+      // What the same money would have earned doing nothing: the hurdle.
+      `${pc(cashReturn(days(w.startDate, new Date(p.asOf + "T00:00:00Z"))) * 100)}\n`;
   }
 
   out +=
-    `\n3M and 6M say whether recent decisions are working; YTD carries the whole year. ` +
+    `\nCash is what the broker pays on uninvested money (${(CASH_APR * 100).toFixed(1)}% a year): the return ` +
+    `the book has to beat before it has earned anything for the risk taken. ` +
+    `3M and 6M say whether recent decisions are working; YTD carries the whole year. ` +
     `Anchor as of ${p.anchorAsOf} (${p.source}) — start values and cash flows are broker data, ` +
     `benchmarks and the current value are live.\n`;
   return out;

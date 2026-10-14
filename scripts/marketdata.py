@@ -6,14 +6,23 @@ at a time with a pause, and each day's bars are kept in `.whatsapp/cache/` so
 a second run on the same day costs nothing.
 """
 import datetime as dt
+import glob
 import json
 import os
 import time
 import urllib.request
+import zoneinfo
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPORTS = os.path.join(ROOT, ".whatsapp", "reports")
 CACHE = os.path.join(ROOT, ".whatsapp", "cache")
+# The broker's commission per side and the yearly interest it pays on cash.
+# Keep in step with lib/market/costs.ts.
+COMMISSION_PC = 0.003
+CASH_APR = 0.035
+RISK_PER_POSITION = 0.0075
+BASE = os.environ.get("DASHBOARD_URL", "http://localhost:3000")
+HEDGES = {"SSG", "SOXS", "PSQ", "QID", "SQQQ", "SH", "SDS", "BITI", "SEF", "ERY"}
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/126 Safari/537.36"
 
 
@@ -31,7 +40,11 @@ class Closes:
     def __init__(self, rng="6mo"):
         self.rng = rng
         os.makedirs(CACHE, exist_ok=True)
-        self.path = os.path.join(CACHE, f"closes-{dt.date.today()}-{rng}.json")
+        # Bars fetched before 16:00 New York lack that day's close, so the cache
+        # of the morning is not reused in the evening.
+        now = ny_now()
+        tag = "close" if phase(now) in ("after the close", "weekend") else "early"
+        self.path = os.path.join(CACHE, f"closes-{now.date()}-{tag}-{rng}.json")
         try:
             self.data = json.load(open(self.path))
         except (OSError, ValueError):
@@ -57,6 +70,12 @@ class Closes:
                     for t, c in zip(r["timestamp"], closes)
                     if c is not None
                 }
+                # Yahoo sometimes leaves the newest daily bar empty for hours
+                # after the close while the quote beside it has the price.
+                m = r.get("meta") or {}
+                if m.get("regularMarketTime") and m.get("regularMarketPrice") is not None:
+                    day = dt.datetime.fromtimestamp(m["regularMarketTime"], zoneinfo.ZoneInfo("America/New_York"))
+                    bars.setdefault(day.date().isoformat(), m["regularMarketPrice"])
                 limited = False
                 break
             except Exception as e:  # a 429 clears after a pause; anything else will not
@@ -90,3 +109,59 @@ def close_on(bars, date):
 
 def last(bars):
     return bars[max(bars)] if bars else None
+
+
+def api(path, body=None, method=None, timeout=60):
+    """One call to the dashboard. `body` makes it a JSON POST."""
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(
+        BASE + path, data=data, method=method or ("POST" if data is not None else "GET"),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as res:
+        return json.load(res)
+
+
+def ny_now():
+    return dt.datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+
+
+def phase(now=None):
+    """Where New York's clock stands. Holidays are not known here: a holiday
+    reads as a trading day, and the last bar of SPY says which session closed."""
+    now = now or ny_now()
+    minutes = now.hour * 60 + now.minute
+    if now.weekday() >= 5:
+        return "weekend"
+    if minutes < 570:
+        return "pre-market"
+    if minutes < 960:
+        return "open"
+    return "after the close"
+
+
+def last_session(bars, now=None):
+    """Date of the last session that has closed, from a ticker's daily bars.
+    While the market is open today's bar is still moving, so it does not count."""
+    now = now or ny_now()
+    today = now.date().isoformat()
+    done = [d for d in sorted(bars) if d < today or (d == today and phase(now) == "after the close")]
+    return done[-1] if done else None
+
+
+def report_files(suffix=".json"):
+    """Report files of one kind, oldest first: `.json` is the recommendations
+    (not the `.portfolio.json`, `.orders.json` or `.run.json` beside them)."""
+    out = []
+    for f in sorted(glob.glob(os.path.join(REPORTS, "*" + suffix))):
+        name = os.path.basename(f)
+        if name[10:] == suffix and len(name) == 10 + len(suffix):
+            out.append(f)
+    return out
+
+
+def load(path, default=None):
+    try:
+        return json.load(open(path))
+    except (OSError, ValueError):
+        return default

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The daily run before the US open: 08:30 local time, Monday to Saturday.
+  New York opens at 10:30 local time while the US is on daylight time and at
+  11:30 from November to March, so 08:30 is at least two hours ahead of it all
+  year. Saturday's run is the weekly review on Friday's closes.
+
+  Install or remove with scripts/scheduled-run.sh (install / remove flags).
+  launchd runs a missed start when the Mac wakes; to have it wake by itself:
+    sudo pmset repeat wakeorpoweron MTWRFS 08:25:00
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.stock-recommender.daily-run</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>/Users/cristobalcastillo/stock_recommender/scripts/scheduled-run.sh</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/cristobalcastillo/stock_recommender</string>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>6</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>30</integer></dict>
+  </array>
+  <key>StandardOutPath</key>
+  <string>/Users/cristobalcastillo/stock_recommender/.whatsapp/logs/launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/cristobalcastillo/stock_recommender/.whatsapp/logs/launchd.log</string>
+</dict>
+</plist>

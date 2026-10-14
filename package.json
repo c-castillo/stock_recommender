@@ -11,6 +11,7 @@
     "build": "NODE_OPTIONS=--disable-warning=DEP0205 next build",
     "start": "NODE_OPTIONS=--disable-warning=DEP0205 next start",
     "lint": "eslint",
+    "test": "tsx --test tests/*.test.ts && python3 -m unittest discover -s scripts/tests -p \"test_*.py\"",
     "analyze": "tsx --env-file=.env.local scripts/analyze.ts",
     "mcp": "tsx --env-file=.env.local mcp/http.mts",
     "mcp:stdio": "tsx mcp/stdio.mts",

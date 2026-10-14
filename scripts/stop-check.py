@@ -9,23 +9,20 @@ and buying power from the dashboard (`/api/portfolio`, as left by the last
 Zesty sync) and live prices from `/api/prices`, and prints one table.
 
 A stop written as a close ("daily close < $212") is only decided at 16:00 New
-York; before that a price under it is a warning, not an exit. A trailing
-percentage is measured from the high since the report, which this script does
-not track: it shows the level the report printed.
+York; before that a price under it is a warning, not an exit. The last column
+is what rests at the broker for that ticker, as the last Zesty sync read it: a
+trailing stop there shows its own level, which follows the high.
 """
 import datetime as dt
-import glob
 import json
 import os
 import re
 import sys
 import urllib.request
 
-from marketdata import REPORTS
+from marketdata import BASE, HEDGES, phase, report_files
 
-BASE = os.environ.get("DASHBOARD_URL", "http://localhost:3000")
 LEVEL = re.compile(r"\$\s*([\d,]+(?:\.\d+)?)")
-HEDGES = {"SSG", "SOXS", "PSQ", "QID", "SQQQ", "SH", "SDS", "BITI", "SEF", "ERY"}
 
 
 def api(path):
@@ -34,7 +31,7 @@ def api(path):
 
 
 def main():
-    files = sorted(f for f in glob.glob(os.path.join(REPORTS, "*.json")) if not f.endswith(".portfolio.json"))
+    files = report_files(".json")
     if not files:
         sys.exit("no report to read stops from")
     report = os.path.basename(files[-1])[:10]
@@ -50,19 +47,19 @@ def main():
     prices = prices.get("prices", prices)
 
     ny = dt.datetime.now(dt.timezone.utc).astimezone(__import__("zoneinfo").ZoneInfo("America/New_York"))
-    minutes = ny.hour * 60 + ny.minute
-    if ny.weekday() >= 5:
-        session = "market closed (weekend)"
-    elif minutes < 570:
-        session = "pre-market"
-    elif minutes < 960:
-        session = "market open"
-    else:
-        session = "after the close"
+    session = {"weekend": "market closed (weekend)", "open": "market open"}.get(phase(ny), phase(ny))
+    resting = {}
+    for o in (book.get("orders") or {}).get("open", []):
+        if o["side"] != "sell":
+            continue
+        lvl = (f"{o['trailPercent']:g}% trail at ${o['stopPrice']:,.2f}" if o["type"] == "trailing_stop" and o.get("stopPrice")
+               else f"{'stop' if 'stop' in o['type'] else 'limit'} ${(o.get('stopPrice') or o.get('limitPrice') or 0):,.2f}")
+        resting.setdefault(o["ticker"], []).append(f"{o.get('qty') or 0:g} sh {lvl}")
+    at = lambda t: "; ".join(resting.get(t, [])) or "nothing"  # noqa: E731
     print(f"## Stop check, {ny:%a %d-%m %H:%M} New York, {session}")
     print(f"Stops from the report of {report}. Prices live from the dashboard.\n")
-    print("Ticker|Shares|Price|Stop in the report|Level|Distance|Status")
-    print("---|---|---|---|---|---|---")
+    print("Ticker|Shares|Price|Stop in the report|Level|Distance|Status|At the broker")
+    print("---|---|---|---|---|---|---|---")
 
     alerts = []
     for p in sorted(positions, key=lambda p: -(p.get("market_value") or 0)):
@@ -72,10 +69,10 @@ def main():
         m = LEVEL.search(stop)
         if t in HEDGES:
             # A hedge has an exit condition on its underlying, not a stop on its own price.
-            print(f"{t}|{p['shares']:g}|{f'${px:.2f}' if px else '—'}|{stop or '—'}|—|—|hedge: read the exit")
+            print(f"{t}|{p['shares']:g}|{f'${px:.2f}' if px else '—'}|{stop or '—'}|—|—|hedge: read the exit|{at(t)}")
             continue
         if not px or not m:
-            print(f"{t}|{p['shares']:g}|{f'${px:.2f}' if px else '—'}|{stop or 'none in the report'}|—|—|no level")
+            print(f"{t}|{p['shares']:g}|{f'${px:.2f}' if px else '—'}|{stop or 'none in the report'}|—|—|no level|{at(t)}")
             continue
         level = float(m.group(1).replace(",", ""))
         gap = 100 * (px / level - 1)
@@ -89,7 +86,7 @@ def main():
             alerts.append(f"{t} ${px:.2f} is {gap:.1f}% above ${level:,.2f}")
         else:
             status = "ok"
-        print(f"{t}|{p['shares']:g}|${px:.2f}|{stop}|${level:,.2f}|{gap:+.1f}%|{status}")
+        print(f"{t}|{p['shares']:g}|${px:.2f}|{stop}|${level:,.2f}|{gap:+.1f}%|{status}|{at(t)}")
 
     cash, free = book.get("cash_balance"), book.get("buying_power")
     if cash is not None:
@@ -97,6 +94,12 @@ def main():
         if free is not None and cash - free > 0.5:
             line += f", of which ${cash - free:,.2f} is reserved by open buy orders"
         print(line)
+    bare = [p["ticker"] for p in positions if p["ticker"] not in HEDGES
+            and not any("stop" in x or "trail" in x for x in resting.get(p["ticker"], []))]
+    if book.get("orders") is None:
+        print("\nThe broker's orders are not on record: run the Zesty sync.")
+    elif bare:
+        print("\nNo stop resting at the broker: " + ", ".join(bare))
     print("\n" + ("Needs attention: " + "; ".join(alerts) if alerts else "Nothing within 2% of its stop."))
 
 

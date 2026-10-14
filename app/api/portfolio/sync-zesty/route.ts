@@ -1,4 +1,5 @@
 import { fetchZestyData } from "@/lib/zesty/portfolio";
+import { parseOrders } from "@/lib/zesty/orders";
 import {
   upsertPosition,
   setCashBalance,
@@ -9,6 +10,8 @@ import {
   getCashBalance,
   upsertPortfolioSnapshot,
   getPerformanceAnchor,
+  setBrokerOrders,
+  getBrokerOrders,
 } from "@/lib/whatsapp/db";
 
 export const dynamic = "force-dynamic";
@@ -17,11 +20,15 @@ export async function POST() {
   let raw: unknown[];
   let cashBalance: number | null = null;
   let buyingPower: number | null = null;
+  let openOrders: unknown[] | null = null;
+  let closedOrders: unknown[] | null = null;
   try {
-    const data = await fetchZestyData();
+    const data = await fetchZestyData(new Set((getBrokerOrders()?.closed ?? []).map((o) => o.id)));
     raw = data.positions;
     cashBalance = data.cashBalance;
     buyingPower = data.buyingPower;
+    openOrders = data.openOrders;
+    closedOrders = data.closedOrders;
   } catch (err) {
     return Response.json(
       { error: err instanceof Error ? err.message : "Error al conectar con Zesty" },
@@ -55,6 +62,17 @@ export async function POST() {
   if (cashBalance !== null) setCashBalance(cashBalance);
   if (cashBalance !== null || buyingPower !== null) setBuyingPower(buyingPower);
 
+  // Keep the last good read of each list: a failed request must not make the
+  // run believe that nothing rests at the broker.
+  const before = getBrokerOrders();
+  const orders = {
+    at: Math.floor(Date.now() / 1000),
+    open: openOrders ? parseOrders(openOrders) : (before?.open ?? []),
+    // New pages first, so a re-read order replaces its older copy.
+    closed: closedOrders ? dedupe([...parseOrders(closedOrders), ...(before?.closed ?? [])]) : (before?.closed ?? []),
+  };
+  if (openOrders || closedOrders) setBrokerOrders(orders);
+
   // Record today's total here rather than leaving it to the dashboard page:
   // that only wrote a row while a browser tab was open, so days synced from
   // /daily-run left gaps in the history the drawdown is measured against.
@@ -83,10 +101,21 @@ export async function POST() {
     cash_balance: cashBalance ?? getCashBalance(),
     buying_power: getBuyingPower(),
     positions: listPortfolio(),
+    orders_read: { open: openOrders !== null, closed: closedOrders !== null },
+    open_orders: orders.open,
+    closed_orders: orders.closed.slice(0, 40),
+    closed_orders_on_record: orders.closed.length,
     performance_anchor: anchor
       ? { asOf: anchor.asOf, flows: anchor.flows.length, lastFlowDate: lastFlow ?? null }
       : null,
   });
+}
+
+/** Pages of the history can overlap; keep each order once, newest first. */
+function dedupe<T extends { id: string; createdAt: string }>(orders: T[]): T[] {
+  const seen = new Map<string, T>();
+  for (const o of orders) if (!seen.has(o.id)) seen.set(o.id, o);
+  return [...seen.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 // ── Parser (same logic as /api/portfolio/sync) ────────────────────────────────

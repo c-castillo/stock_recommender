@@ -9,6 +9,7 @@
  *  4. Click "Continúa sin claves de acceso" (2nd submit button)
  *     →  redirected through /auth/callback?code=… → /dashboard/us
  *  5. Intercept /api/positions?market=us and /api/accounts/balance?market=us
+ *  6. Ask /api/orders/pending and /api/orders from inside the session
  */
 
 import puppeteer from "puppeteer";
@@ -19,9 +20,17 @@ export interface ZestyData {
   cashBalance: number | null;
   /** Cash free for a new order: total cash less open buy orders. */
   buyingPower: number | null;
+  /** Orders working at the broker, or null when the request failed. */
+  openOrders: unknown[] | null;
+  /** Orders that ended: filled, cancelled, expired or rejected. */
+  closedOrders: unknown[] | null;
 }
 
-export async function fetchZestyData(): Promise<ZestyData> {
+export async function fetchZestyData(
+  /** Ids of closed orders already on record: paging stops at the first page
+   *  that holds one, so a daily sync reads one page instead of the whole history. */
+  knownOrderIds: Set<string> = new Set()
+): Promise<ZestyData> {
   const email = process.env.ZESTY_EMAIL;
   const password = process.env.ZESTY_PASSWORD;
 
@@ -202,10 +211,44 @@ export async function fetchZestyData(): Promise<ZestyData> {
       });
     }
 
+    // ── Step 8: Orders ──────────────────────────────────────────────────────
+    // The dashboard does not load them, but the session can ask: the open
+    // orders (resting stops, working limits) and the closed ones (fills,
+    // expiries, cancellations). Non-fatal: the book is what must not fail.
+    const ask = (path: string) =>
+      page
+        .evaluate(async (u) => {
+          const r = await fetch(u, { credentials: "include" });
+          return r.ok ? await r.json() : null;
+        }, path)
+        .catch(() => null);
+    const list = (j: unknown): unknown[] | null =>
+      Array.isArray(j) ? j : Array.isArray((j as { data?: unknown })?.data) ? ((j as { data: unknown[] }).data) : null;
+    const openOrders = list(await ask("/api/orders/pending?market=us"));
+    // The history comes a page at a time. Entry dates are read from it, so
+    // follow the cursor back as far as it goes (bounded, in case it loops).
+    let closedOrders: unknown[] | null = null;
+    let cursor: string | null = null;
+    for (let page = 0; page < 80; page++) {
+      const json: unknown = await ask(
+        `/api/orders?market=us${cursor ? `&nextToken=${encodeURIComponent(cursor)}` : ""}`
+      );
+      const rows = list(json);
+      if (!rows) break;
+      closedOrders = [...(closedOrders ?? []), ...rows];
+      const next = (json as { nextToken?: unknown; next_token?: unknown } | null)?.nextToken ??
+        (json as { next_token?: unknown } | null)?.next_token;
+      if (typeof next !== "string" || !next || next === cursor || rows.length === 0) break;
+      if (rows.some((r) => knownOrderIds.has(String((r as { orderId?: unknown })?.orderId)))) break;
+      cursor = next;
+    }
+
     return {
       positions: capturedPositions,
       cashBalance: capturedBalance,
       buyingPower: capturedBuyingPower,
+      openOrders,
+      closedOrders,
     };
   } finally {
     await browser.close();
