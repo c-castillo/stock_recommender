@@ -150,3 +150,78 @@ test("broker orders: the parser reads numbers out of strings and skips junk", ()
   assert.equal(parsed[1].state, "canceled");
   assert.equal(parseOrders(null).length, 0);
 });
+
+// ── Trade journal ─────────────────────────────────────────────────────────────
+
+import { buildJournal, inferSplit, originOf, type ReportAsk } from "../lib/market/trade-journal";
+
+const fill = (id: string, ticker: string, side: "buy" | "sell", qty: number, price: number, createdAt: string, type = "limit"): BrokerOrder => ({
+  id, ticker, side, type, qty, limitPrice: price, stopPrice: null, trailPercent: null,
+  filledQty: qty, filledAvgPrice: price, state: "filled", status: "Completada", timeInForce: null, createdAt,
+});
+const ask = (date: string, buys: string[] = [], sells: string[] = [], stops: string[] = []): ReportAsk =>
+  ({ date, buys: new Set(buys), sells: new Set(sells), stops: new Set(stops) });
+
+test("journal: sells close the oldest buy first, net of commissions", () => {
+  const { trades, summary } = buildJournal([
+    fill("b1", "AAA", "buy", 10, 100, "2026-10-01T14:00:00Z"),
+    fill("b2", "AAA", "buy", 10, 110, "2026-10-02T14:00:00Z"),
+    fill("s1", "AAA", "sell", 15, 120, "2026-10-05T14:00:00Z"),
+  ], [], {}, { AAA: 120 }, "2026-10-06T00:00:00Z");
+  const [b2, b1] = trades;
+  assert.equal(b1.status, "closed");
+  assert.equal(b1.exitDate, "2026-10-05");
+  // 10 × (120 − 100) less 0.30% on $1,000 bought and $1,200 sold.
+  assert.ok(Math.abs(b1.realizedPl - (200 - 3 - 3.6)) < 1e-9);
+  assert.equal(b2.status, "partial");
+  assert.equal(b2.soldQty, 5);
+  assert.ok(Math.abs(b2.unrealizedPl! - (5 * 10 - 3.3 / 2)) < 1e-9);
+  assert.equal(summary.closed, 1);
+});
+
+test("journal: an order is the agent's when a report asked for it shortly before", () => {
+  const asks = [ask("2026-10-15", ["SNDK"], ["SSG"], ["EBAY"])];
+  assert.equal(originOf(fill("x", "SNDK", "buy", 1, 1, "2026-10-16T00:31:36Z"), asks), "agent");
+  assert.equal(originOf(fill("x", "SNDK", "buy", 1, 1, "2026-10-25T14:00:00Z"), asks), "user");
+  assert.equal(originOf(fill("x", "SNDK", "sell", 1, 1, "2026-10-16T14:00:00Z"), asks), "user");
+  assert.equal(originOf(fill("x", "EBAY", "sell", 1, 1, "2026-10-15T14:00:00Z", "stop"), asks), "agent");
+  assert.equal(originOf(fill("x", "EBAY", "sell", 1, 1, "2026-10-15T14:00:00Z"), asks), "user");
+  // A manual override wins.
+  const { trades } = buildJournal([fill("b", "SNDK", "buy", 1, 1, "2026-10-16T00:31:36Z")], asks, { b: "user" });
+  assert.equal(trades[0].origin, "user");
+  assert.ok(trades[0].originOverridden);
+});
+
+test("journal: a split restates the open lots in the new shares", () => {
+  assert.equal(inferSplit({ price: 412, date: "2026-07-13" }, 23.5, "2026-07-15"), 20);
+  assert.equal(inferSplit({ price: 1.28, date: "2025-04-07" }, 24.87, "2025-04-10"), 1 / 20);
+  assert.equal(inferSplit({ price: 16, date: "2025-06-24" }, 5.72, "2025-07-18"), null);
+  const { trades } = buildJournal([
+    fill("b", "KORU", "buy", 2, 400, "2026-07-13T14:00:00Z"),
+    fill("b2", "KORU", "buy", 10, 21, "2026-07-15T14:00:00Z"),
+    fill("s", "KORU", "sell", 50, 22, "2026-08-01T14:00:00Z"),
+  ], []);
+  const first = trades.find((t) => t.id === "b")!;
+  assert.equal(first.qty, 40);
+  assert.equal(first.entryPrice, 20);
+  assert.equal(first.status, "closed");
+  assert.deepEqual(first.splits, ["20:1 2026-07-15"]);
+});
+
+import { legFillOrders } from "../lib/zesty/legs";
+
+test("journal: a filled oto stop leg closes the trade its parent opened", () => {
+  const parent = fill("p", "SKHY", "buy", 11, 141.26, "2026-10-16T05:18:43Z");
+  const legs = { p: [{ legId: "l", side: "sell" as const, type: "stop", qty: 11, stopPrice: 136.5, filledQty: 11, filledAvgPrice: 136.51, filledAt: "2026-10-16T19:06:45Z", done: true }] };
+  const extra = legFillOrders([parent], legs);
+  assert.equal(extra.length, 1);
+  assert.equal(extra[0].ticker, "SKHY");
+  const { trades } = buildJournal([parent, ...extra], [ask("2026-10-15", ["SKHY"], [], ["SKHY"])]);
+  assert.equal(trades[0].status, "closed");
+  assert.equal(trades[0].exitDate, "2026-10-16");
+  assert.equal(trades[0].exitOrigin, "agent");
+  // 11 × (136.51 − 141.26) less both commissions: the −$61.41 the broker shows, to the cent.
+  assert.ok(Math.abs(trades[0].realizedPl - (-52.25 - 4.66158 - 4.50483)) < 0.01);
+  // A leg that has not filled adds nothing.
+  assert.equal(legFillOrders([parent], { p: [{ ...legs.p[0], filledQty: undefined }] }).length, 0);
+});

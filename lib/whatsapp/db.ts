@@ -768,6 +768,25 @@ export function getBrokerOrders(): import("@/lib/zesty/orders").BrokerOrders | n
   }
 }
 
+// ── Trade journal ─────────────────────────────────────────────────────────────
+
+/** Origins set by hand in the trade journal, by order id: they win over the
+ *  match against the reports. */
+export function getTradeOrigins(): Record<string, "agent" | "user"> {
+  try {
+    return JSON.parse(getKv("trade_journal_origins") ?? "{}");
+  } catch {
+    return {};
+  }
+}
+
+export function setTradeOrigin(orderId: string, origin: "agent" | "user" | null) {
+  const all = getTradeOrigins();
+  if (origin) all[orderId] = origin;
+  else delete all[orderId];
+  setKv("trade_journal_origins", JSON.stringify(all));
+}
+
 // ── Portfolio goal ────────────────────────────────────────────────────────────
 
 export interface PortfolioGoal {

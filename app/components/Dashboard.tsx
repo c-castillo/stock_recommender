@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import type { AIRecommendation, AnalysisStats } from "@/lib/ai/analyze";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -460,6 +461,9 @@ export default function Dashboard() {
             <h1 className="text-base font-extrabold text-white leading-none tracking-tight uppercase">Dr. Market Stock Picker</h1>
             <p className="text-xs text-[#a0a0a0] mt-0.5 font-semibold">Análisis con IA basado en grupos de WhatsApp</p>
           </div>
+          <Link href="/bitacora" className="ml-auto rounded-xl border-2 border-[#F5C518] px-3 py-1.5 text-xs font-extrabold uppercase text-[#F5C518] hover:bg-[#F5C518] hover:text-[#1a1a1a] transition-colors">
+            📒 Bitácora
+          </Link>
         </div>
       </header>
 
