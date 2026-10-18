@@ -53,33 +53,63 @@ export function orderState(status: string, filledQty: number, qty: number | null
   return "other";
 }
 
+function parseOne(o: Record<string, unknown>, ticker: string, createdAt: string): BrokerOrder | null {
+  const side = String(o.side ?? "").toLowerCase();
+  if (!ticker || (side !== "buy" && side !== "sell")) return null;
+  const qty = num(o.qty);
+  const status = String(o.status ?? "");
+  let filledQty = num(o.filledQty) ?? 0;
+  let filledAvgPrice = num(o.filledAvgPrice);
+  // A leg that has not traded still carries filledAvgPrice = its stop price
+  // (and no filledQty), so trust a price only on a leg that says it filled.
+  if (o.filledQty === undefined) {
+    const filled = /complet|ejecutad|filled/i.test(status);
+    filledQty = filled ? (qty ?? 0) : 0;
+    if (!filled) filledAvgPrice = null;
+  }
+  return {
+    id: String(o.orderId ?? ""),
+    ticker,
+    side,
+    type: String(o.type ?? ""),
+    qty,
+    limitPrice: num(o.limitPrice),
+    stopPrice: num(o.stopPrice),
+    trailPercent: num(o.trailPercent),
+    filledQty,
+    filledAvgPrice,
+    state: orderState(status, filledQty, qty),
+    status,
+    timeInForce: typeof o.timeInForce === "string" ? o.timeInForce : null,
+    createdAt,
+  };
+}
+
+/**
+ * One row per order, and one per leg of an oto/oco/bracket order: the stop a
+ * buy carries is a resting order of its own once the buy fills, and Zesty
+ * lists it only inside the parent's `legs`.
+ */
 export function parseOrders(raw: unknown[] | null): BrokerOrder[] {
   const out: BrokerOrder[] = [];
   for (const item of raw ?? []) {
     if (typeof item !== "object" || item === null) continue;
     const o = item as Record<string, unknown>;
     const ticker = String(o.symbol ?? "").toUpperCase().trim();
-    const side = String(o.side ?? "").toLowerCase();
-    if (!ticker || (side !== "buy" && side !== "sell")) continue;
-    const qty = num(o.qty);
-    const filledQty = num(o.filledQty) ?? 0;
-    const status = String(o.status ?? "");
-    out.push({
-      id: String(o.orderId ?? ""),
-      ticker,
-      side,
-      type: String(o.type ?? ""),
-      qty,
-      limitPrice: num(o.limitPrice),
-      stopPrice: num(o.stopPrice),
-      trailPercent: num(o.trailPercent),
-      filledQty,
-      filledAvgPrice: num(o.filledAvgPrice),
-      state: orderState(status, filledQty, qty),
-      status,
-      timeInForce: typeof o.timeInForce === "string" ? o.timeInForce : null,
-      createdAt: String(o.createdAt ?? ""),
-    });
+    const createdAt = String(o.createdAt ?? "");
+    const parent = parseOne(o, ticker, createdAt);
+    if (parent) out.push(parent);
+    for (const leg of Array.isArray(o.legs) ? o.legs : []) {
+      if (typeof leg !== "object" || leg === null) continue;
+      const row = parseOne(leg as Record<string, unknown>, ticker, createdAt);
+      if (row) out.push(row);
+    }
   }
   return out;
+}
+
+/** Still working at the broker: what rests, as opposed to what ended. */
+export function isWorking(o: BrokerOrder): boolean {
+  // "partial" is also a cancelled or expired order that had filled in part.
+  return o.state === "open" || (o.state === "partial" && !/cancel|expir|vencid/i.test(o.status));
 }

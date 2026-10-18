@@ -1,5 +1,5 @@
 import { fetchZestyData } from "@/lib/zesty/portfolio";
-import { parseOrders } from "@/lib/zesty/orders";
+import { isWorking, parseOrders } from "@/lib/zesty/orders";
 import {
   upsertPosition,
   setCashBalance,
@@ -65,11 +65,21 @@ export async function POST() {
   // Keep the last good read of each list: a failed request must not make the
   // run believe that nothing rests at the broker.
   const before = getBrokerOrders();
+  // The pending list keeps a filled oto/bracket parent for as long as its stop
+  // leg rests, so it is split by state: the leg stays open, the fill is closed.
+  const pending = openOrders ? parseOrders(openOrders) : null;
   const orders = {
     at: Math.floor(Date.now() / 1000),
-    open: openOrders ? parseOrders(openOrders) : (before?.open ?? []),
+    open: pending ? pending.filter(isWorking) : (before?.open ?? []),
     // New pages first, so a re-read order replaces its older copy.
-    closed: closedOrders ? dedupe([...parseOrders(closedOrders), ...(before?.closed ?? [])]) : (before?.closed ?? []),
+    closed:
+      closedOrders || pending
+        ? dedupe([
+            ...(pending ?? []).filter((o) => !isWorking(o)),
+            ...parseOrders(closedOrders),
+            ...(before?.closed ?? []),
+          ])
+        : (before?.closed ?? []),
   };
   if (openOrders || closedOrders) setBrokerOrders(orders);
 

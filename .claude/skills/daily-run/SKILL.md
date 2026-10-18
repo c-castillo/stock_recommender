@@ -376,6 +376,17 @@ enough; POST `/api/portfolio/sync-zesty`) so the open orders are current.
    `cancel_order` first, then the new order. On `RATE_LIMITED_LOCAL`, wait the
    stated seconds and retry the same call: it starts after about six
    confirmations in a row, so with more orders than that, pause between them.
+   A confirmed oto/bracket returns `legIds`: record each one at once with
+   `pnpm exec tsx scripts/record-zesty-leg.ts <orderId> <legId> sell stop
+   <qty> <stopPrice>`. Zesty's web API never lists a leg, so the sync sees
+   its level only through that file (`.whatsapp/zesty-legs.json`); without
+   it the stop shows as resting with its level unknown. Once a parent leaves
+   the pending list, the next sync reads each of its known legs by id and
+   writes the fill (or the end) in that file, where the trade journal finds
+   the sale. The web API gives no fill time, so for an exact date record it
+   from the connector's `get_order_detail` on the leg (its `fill` event):
+   `pnpm exec tsx scripts/record-zesty-leg.ts fill <legId> <qty> <avgPrice>
+   <filledAt>`.
 6. `get_orders` with `status: "pending"` once more and report what now rests
    at Zesty, what was declined and what is waiting for a fill. Do not re-sync
    the portfolio or rewrite the report: tomorrow's run picks the fills up from

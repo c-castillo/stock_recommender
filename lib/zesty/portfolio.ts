@@ -13,6 +13,78 @@
  */
 
 import puppeteer from "puppeteer";
+import { readKnownLegs, recordLegOutcome } from "@/lib/zesty/legs";
+
+/**
+ * The stop legs of oto/bracket buys, as rows shaped like the pending list's.
+ *
+ * Zesty's web API lists only the parent: a filled buy stays in the pending
+ * list while its stop leg rests, but the leg itself is absent, and the order
+ * detail does not link to it. A leg can be read by its own id, which only the
+ * confirmation that placed the order returns, so those ids are kept in
+ * `.whatsapp/zesty-legs.json`. A parent with no known leg still proves a stop
+ * rests; it is listed with its level unknown.
+ */
+async function legRows(
+  pending: unknown[],
+  ask: (path: string) => Promise<unknown>
+): Promise<Record<string, unknown>[]> {
+  const known = readKnownLegs();
+  const rows: Record<string, unknown>[] = [];
+  for (const item of pending) {
+    const p = item as Record<string, unknown>;
+    const parentId = String(p.orderId ?? "");
+    if (String(p.side) !== "buy" || !/complet|ejecutad|filled/i.test(String(p.status ?? ""))) continue;
+    const legs = known[parentId] ?? [];
+    if (legs.length === 0) {
+      rows.push({
+        orderId: `${parentId}:stop`, symbol: p.symbol, side: "sell", type: "stop", qty: p.qty,
+        stopPrice: null, status: "Pendiente", createdAt: p.createdAt, timeInForce: "gtc", filledQty: 0,
+      });
+      continue;
+    }
+    for (const leg of legs) {
+      const detail = (await ask(`/api/orders/${leg.legId}?market=us`)) as Record<string, unknown> | null;
+      rows.push({
+        orderId: leg.legId, symbol: p.symbol, side: leg.side, type: leg.type, qty: leg.qty,
+        stopPrice: leg.stopPrice, limitPrice: leg.limitPrice ?? null,
+        status: detail?.status ?? "Pendiente", createdAt: p.createdAt, timeInForce: "gtc",
+        filledQty: Number(detail?.filledQty ?? 0),
+        filledAvgPrice: Number(detail?.filledQty ?? 0) > 0 && detail?.subtotal
+          ? Number(detail.subtotal) / Number(detail.filledQty) : null,
+      });
+    }
+  }
+  return rows;
+}
+
+/**
+ * Settle the known legs whose parent left the pending list: the leg filled
+ * (the stop closed the position) or ended with its parent. Read each by id
+ * and keep the outcome in the legs file, where the trade journal finds the
+ * sale. The web API gives no fill time, so a fill is dated by this read.
+ */
+async function settleLegs(pending: unknown[], ask: (path: string) => Promise<unknown>): Promise<void> {
+  const stillPending = new Set(pending.map((p) => String((p as Record<string, unknown>).orderId ?? "")));
+  for (const [parentId, legs] of Object.entries(readKnownLegs())) {
+    if (stillPending.has(parentId)) continue;
+    for (const leg of legs) {
+      if (leg.done) continue;
+      const detail = (await ask(`/api/orders/${leg.legId}?market=us`)) as Record<string, unknown> | null;
+      if (!detail) continue;
+      const filled = Number(detail.filledQty ?? 0);
+      if (filled > 0) {
+        recordLegOutcome(leg.legId, {
+          filledQty: filled,
+          filledAvgPrice: detail.subtotal ? Number(detail.subtotal) / filled : Number(detail.filledAvgPrice) || null,
+          filledAt: new Date().toISOString(),
+        });
+      } else if (/cancel|expir|vencid|rechaz|reject/i.test(String(detail.status ?? ""))) {
+        recordLegOutcome(leg.legId, { ended: true });
+      }
+    }
+  }
+}
 
 export interface ZestyData {
   positions: unknown[];
@@ -225,6 +297,10 @@ export async function fetchZestyData(
     const list = (j: unknown): unknown[] | null =>
       Array.isArray(j) ? j : Array.isArray((j as { data?: unknown })?.data) ? ((j as { data: unknown[] }).data) : null;
     const openOrders = list(await ask("/api/orders/pending?market=us"));
+    if (openOrders) {
+      await settleLegs(openOrders, ask);
+      openOrders.push(...(await legRows(openOrders, ask)));
+    }
     // The history comes a page at a time. Entry dates are read from it, so
     // follow the cursor back as far as it goes (bounded, in case it loops).
     let closedOrders: unknown[] | null = null;
