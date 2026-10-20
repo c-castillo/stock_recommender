@@ -402,6 +402,10 @@ function insertParams(msg: MessageRow) {
  */
 function persistMainAnalystAdds(msg: MessageRow) {
   if (!isMainAnalystAdd(msg.body) || !isMainAnalyst(msg.sender)) return;
+  // The ledger is the US book's. The live listener stores every chat, and the
+  // main analyst also posts in his Chilean and crypto groups: a "+COPEC" there
+  // must not become a US ADD (the Chilean ledger is kept by scripts/cl/).
+  if (!listSelectedJids().includes(msg.jid)) return;
   const addedOn = new Date(msg.ts * 1000).toISOString().slice(0, 10);
   for (const { ticker, entryPrice } of parseMainAnalystAdds(msg.body)) {
     recordMainAnalystAddIfNew({ ticker, entryPrice, addedOn, note: "auto: +TICKER in corpus" });
@@ -589,6 +593,32 @@ export function getContentForAnalysis(
        LIMIT ?`
     )
     .all(since, maxMessages) as MessageForAnalysis[];
+}
+
+/**
+ * The same rows as getContentForAnalysis, for named groups instead of the
+ * selected ones: a separate analysis (the Chilean book) reads its own group
+ * without that group ever joining the US scope.
+ */
+export function getGroupContent(
+  jids: string[],
+  sinceDaysAgo = 21,
+  maxMessages = 6000
+): MessageForAnalysis[] {
+  if (jids.length === 0) return [];
+  const since = Math.floor(Date.now() / 1000) - sinceDaysAgo * 86400;
+  return getDb()
+    .prepare(
+      `SELECT m.id, m.jid, g.name AS group_name, m.sender, m.body, m.ts,
+              m.media_type, m.media_mime, m.media_filename, m.media_path, m.media_digest
+       FROM wa_messages m
+       JOIN wa_groups g ON m.jid = g.jid
+       WHERE m.jid IN (${jids.map(() => "?").join(",")}) AND m.ts >= ?
+         AND (m.relevance IS NULL OR m.relevance = 1)
+       ORDER BY m.ts DESC
+       LIMIT ?`
+    )
+    .all(...jids, since, maxMessages) as MessageForAnalysis[];
 }
 
 /**
