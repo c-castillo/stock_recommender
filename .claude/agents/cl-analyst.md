@@ -28,6 +28,7 @@ US ADD ledger: they are the US book's. Everything you need is here:
 | Digest a file nobody has read | `pnpm exec tsx scripts/cl/corpus.ts pending-media`, then `save-digest` |
 | The book as the statement has it | `pnpm exec tsx scripts/cl/holdings.ts --latest` |
 | The Chilean ADD ledger | `pnpm exec tsx scripts/cl/adds.ts list / record / deactivate` |
+| A name's CMF filings: material facts, dividends, results | The bundle's "CMF filings" section; more with `pnpm exec tsx scripts/cl/cmf.mts show TICKER --days 365`, and the análisis razonado text at the path the bundle gives. `cmf.mts sync TICKER` refreshes one name (a watchlist name not held is synced on demand) |
 | Live price, order book, presencia bursátil | Zesty connector, read-only: `mcp__claude_ai_Zesty__get_asset_details` with `market: "cl"` (load it with ToolSearch). Never a `preview_*`, `confirm_*` or `cancel_order` call: the book is at Itaú |
 | Raw material for an own chart read | `python3 scripts/chart-read.py COPEC.SN SQM-B.SN …` (Yahoo symbols, `.SN`) |
 
@@ -117,6 +118,13 @@ US ADD ledger: they are the US book's. Everything you need is here:
   approximate. Every "above/below the MA200" call is decided on the bundle's
   TradingView cross-check table; Yahoo's slope gives the direction only, and
   the report says so once at the top.
+- **The CMF is the record; Zesty has none of it.** Dividends, buybacks and
+  results come from the bundle's CMF section (the regulator's own filings).
+  Zesty's `get_dividends` is the user's own Zesty payouts, not a company's,
+  and its asset details carry no filings. A Telegram post about a dividend is
+  hearsay where a CMF notice says otherwise. For a name you BUY or SELL whose
+  results came out since the last report, read its análisis razonado and cite
+  the period. Banks have no análisis razonado at the CMF: say so.
 - **Prices come from the bundle.** Never take an entry from a message or an
   old report (PRICE THE PRESENT). For a ticker the bundle does not price,
   fetch it with `chart-read.py` and say so.

@@ -15,6 +15,7 @@ import {
   BENCHMARK, CASH_APR_FALLBACK, CL_BANKS, CL_BOOK_HISTORY, CL_GROUP, CL_HOLDINGS, CL_TELEGRAM_CHATS, CL_TELEGRAM_GROUPS, CL_MACRO, CL_REPORTS,
   CL_SECTORS, COMMISSION_PC, COMMISSION_VERIFIED, IPSA_MEMBERS, RISK_PER_POSITION, clSectorOf, fromYahoo, yahooSymbol,
 } from "@/lib/cl/config";
+import { CMF_DIR, CMF_ISSUER, isDividendNotice, latestFiledPeriod, loadCmfIndex, nextDuePeriod, noticeBody } from "@/lib/cl/cmf";
 import type { ClStatement } from "@/lib/cl/holdings";
 import { clAddStatus, loadClLedger } from "@/lib/cl/ledger";
 import { loadClRoles, suggestRole } from "@/lib/cl/roles";
@@ -511,6 +512,63 @@ for (const t of watched) {
     say(`- [${new Date(r.ts * 1000).toISOString().slice(0, 10)}] ${isNotice(r.body!) ? "NOTICE · " : `${r.sender ?? "?"}: `}${text.length > (isNotice(r.body!) ? 900 : 400) ? text.slice(0, isNotice(r.body!) ? 900 : 400) + " …" : text}`);
   }
   say();
+}
+
+// The CMF's own record, synced by scripts/cl/cmf.mts before the bundle: the
+// notices are what the company declared, the calendar is the results date.
+const cmf = loadCmfIndex();
+const noticeDays = 90;
+const sinceNotices = new Date(Date.parse(TODAY) - noticeDays * 86_400_000).toISOString().slice(0, 10);
+say("## CMF filings (the regulator's record — FACTS)");
+say();
+say("Material facts (hechos esenciales) the companies filed with the CMF, their statements calendar and their latest análisis razonado, " +
+  "from cmfchile.cl. A notice is the company's own declaration and outranks a Telegram post about it; a dividend notice says whether it is " +
+  "provisional (provisorio), final (definitivo) or only proposed to the shareholders' meeting. \"OCR\" marks a notice read from a scan: " +
+  "check a figure against its PDF before an order rests on it. \"Next due\" is the CMF's deadline for the quarter's statements, the date " +
+  "NO BUY INTO ITS OWN RESULTS uses (companies often file a few days before it).");
+say();
+if (!Object.keys(cmf).length) {
+  say("⚠ Not synced: run `pnpm exec tsx scripts/cl/cmf.mts sync`. Say in the report that the CMF record was not read.");
+} else {
+  say("Ticker|Next statements due|Days|Last filed period|Filed by|Notices (90d)|Dividend notices (365d)|Synced");
+  say("---|---|---|---|---|---|---|---");
+  for (const t of watched) {
+    const r = cmf[t];
+    if (!r) {
+      say(`${t}|${CMF_ISSUER[t] ? "not synced" : "no CMF id"}|—|—|—|—|—|—`);
+      continue;
+    }
+    const next = nextDuePeriod(r.calendar, TODAY);
+    const last = latestFiledPeriod(r.calendar, TODAY);
+    const days = next ? Math.round((Date.parse(next.due) - Date.parse(TODAY)) / 86_400_000) : null;
+    say([
+      t,
+      next ? `${next.due} (${next.year}-${next.month})` : "not set",
+      days != null ? `${days}${days <= 10 ? " ⚠" : ""}` : "—",
+      r.report?.period ?? "—",
+      last ? last.due : "—",
+      r.notices.filter((n) => n.at.slice(0, 10) >= sinceNotices).length,
+      r.notices.filter(isDividendNotice).length,
+      `${r.syncedAt.slice(0, 10)}${r.error ? " ⚠ last sync failed" : ""}`,
+    ].join("|"));
+  }
+  say();
+  for (const t of watched) {
+    const r = cmf[t];
+    if (!r) continue;
+    const shown = r.notices.filter((n) => n.at.slice(0, 10) >= sinceNotices || isDividendNotice(n)).slice(0, 8);
+    say(`### ${t} (CMF)${shown.length ? "" : ` — no notice in ${noticeDays} days, no dividend notice in the year`}`);
+    for (const n of shown) {
+      const body = !n.text ? "(not downloaded yet)"
+        : n.scanned ? `(a scan OCR could not read: ${join(CMF_DIR, n.text)})`
+        : noticeBody(readFileSync(join(CMF_DIR, n.text), "utf8"));
+      say(`- [${n.at}] ${n.materia}${isDividendNotice(n) ? " · DIVIDEND" : ""}${n.ocr ? " · OCR" : ""}: ${body.length > 900 ? body.slice(0, 900) + " …" : body}`);
+    }
+    if (r.report?.text)
+      say(`- Análisis razonado ${r.report.period}: ${join(CMF_DIR, r.report.text)} — read it for a name you BUY or SELL, and for one whose results came out since the last report.`);
+    else if (r.report) say(`- Statements ${r.report.period} filed; the CMF has no análisis razonado for it${CMF_ISSUER[t]?.bank ? " (banks publish theirs on their own site)" : ""}.`);
+    say();
+  }
 }
 
 // ── Prior reports (NOT evidence) ─────────────────────────────────────────────

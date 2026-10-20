@@ -182,6 +182,18 @@ def telegram():
     return {"imported": True, "chats": chats, "summary": res.stdout.strip()}
 
 
+def cmf():
+    say("\n## 4. CMF filings (material facts, statements calendar, análisis razonado)")
+    res = tsx("scripts/cl/cmf.mts", "sync")
+    out = (res.stdout or "").strip()
+    if out:
+        say(out)
+    if res.returncode != 0:
+        say("⚠ The CMF sync did not complete for every name: the run goes on with what is stored, and the bundle dates each name's sync. "
+            + (res.stderr or "").strip()[-300:])
+    return {"ok": res.returncode == 0, "summary": out}
+
+
 def depth(forced, prev):
     """WEEKLY on Friday (the week's last session) and at the weekend, on the
     first report, or when the last report is over a week old; DAILY otherwise."""
@@ -207,6 +219,7 @@ def main():
     st = statements()
     wa = whatsapp("--no-sync" not in args, "backfill" in args)
     tg = telegram()
+    filings = cmf()
     status = tsx("scripts/cl/corpus.ts", "status")
     say(status.stdout.strip())
 
@@ -223,7 +236,7 @@ def main():
     }[phase()]
     record = {"date": TODAY, "session": session, "phase": phase(), "startedSantiago": NOW.strftime("%Y-%m-%d %H:%M"),
               "depth": level, "previousReport": prev, "fullDetailDays": days, "pricesAre": what,
-              "statement": st, "whatsapp": wa, "telegram": tg}
+              "statement": st, "whatsapp": wa, "telegram": tg, "cmf": filings}
     path = os.path.join(REPORTS, f"{TODAY}.run.json")
     json.dump(record, open(path, "w"), indent=1, ensure_ascii=False)
 
