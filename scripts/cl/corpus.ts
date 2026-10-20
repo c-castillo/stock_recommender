@@ -13,7 +13,7 @@
  * column, so a file is read once.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { CL_SOURCES, CL_TELEGRAM_JID } from "@/lib/cl/config";
+import { CL_SOURCES } from "@/lib/cl/config";
 import { digestSchema, PROMPT, STUDIES_PROMPT, TRANSCRIBE_PROMPT } from "@/lib/ai/media-prompts";
 import { getGroupContent, isMainAnalyst, listGroupJidsByName, setMediaDigest } from "@/lib/whatsapp/db";
 
@@ -28,11 +28,12 @@ if (jids.length === 0) {
   console.error(`None of ${CL_SOURCES.join(", ")} is in the database: refresh the WhatsApp groups / import the Telegram export.`);
   process.exit(2);
 }
-/** The Telegram group is busy and its photos are mostly screenshots of
- *  announcements already in the text: only its last 30 days are digested. */
+/** The Telegram groups are busy and their photos are mostly screenshots of
+ *  what the text already says: only their last 30 days are digested. */
 const TELEGRAM_MEDIA_DAYS = 30;
+const isTelegram = (jid: string) => jid.startsWith("tg:");
 const inMediaWindow = (r: { jid: string; ts: number }) =>
-  r.jid !== CL_TELEGRAM_JID || r.ts >= Date.now() / 1000 - TELEGRAM_MEDIA_DAYS * 86400;
+  !isTelegram(r.jid) || r.ts >= Date.now() / 1000 - TELEGRAM_MEDIA_DAYS * 86400;
 const stamp = (ts: number) =>
   new Date(ts * 1000).toLocaleString("es-CL", { timeZone: "America/Santiago", dateStyle: "short", timeStyle: "short" });
 const who = (s: string | null) => (isMainAnalyst(s) ? "MAIN ANALYST" : (s ?? "?"));
@@ -48,7 +49,7 @@ if (cmd === "status") {
     const age = newest ? Math.max(0, Date.now() / 1000 - newest.ts) / 86400 : Infinity;
     console.log(`${newest?.group_name ?? jid}: ${rows.length} messages, newest ${newest ? stamp(newest.ts) : "none"} (${age.toFixed(1)} days old). ` +
       `Media: ${media.length} files, ${media.filter((r) => r.media_digest != null).length} digested, ` +
-      `${pending.length} awaiting a digest${jid === CL_TELEGRAM_JID ? ` (last ${TELEGRAM_MEDIA_DAYS} days)` : ""}, ${missing.length} not downloaded.`);
+      `${pending.length} awaiting a digest${isTelegram(jid) ? ` (last ${TELEGRAM_MEDIA_DAYS} days)` : ""}, ${missing.length} not downloaded.`);
   }
 } else if (cmd === "pending-media") {
   const rows = getGroupContent(jids, opt("days", 120), 100000)

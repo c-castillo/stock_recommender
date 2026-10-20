@@ -13,16 +13,40 @@ import { join } from "node:path";
  *  pinned groups, so its messages never reach the US report. */
 export const CL_GROUP = "IPSA & SCL 🇨🇱 Dr Market";
 
-/** The second source: the "Dividendos Chile" Telegram group, imported from a
- *  Telegram Desktop export (scripts/cl/telegram.ts) under a pseudo-jid that is
- *  never selected for the US analysis. Strong on dividend facts (forwarded
- *  CMF material-fact notices with amounts and dates); the main analyst is not
- *  in it. */
-export const CL_TELEGRAM_GROUP = "Dividendos Chile (Telegram)";
-export const CL_TELEGRAM_JID = "tg:dividendos-chile";
+/** The Telegram sources, imported from Telegram Desktop exports
+ *  (scripts/cl/telegram.ts) under pseudo-jids that are never selected for the
+ *  US analysis. `chat` is the name an export's header must carry to be
+ *  imported as that group: Telegram numbers messages per chat, so another
+ *  chat under the same jid would overwrite rows. The main analyst is in
+ *  neither: no ADD comes from them. */
+export interface ClTelegramChat {
+  chat: string;
+  jid: string;
+  group: string;
+  about: string;
+}
+export const CL_TELEGRAM_CHATS: ClTelegramChat[] = [
+  {
+    chat: "Dividendos Chile",
+    jid: "tg:dividendos-chile",
+    group: "Dividendos Chile (Telegram)",
+    about:
+      "A dividend investors' group. Members post forwarded CMF material-fact notices (\"Hecho Esencial\": dividend amounts, " +
+      "record and payment dates) and weekly record-date calendars, which are FACTS about dividends; their opinions are chat.",
+  },
+  {
+    chat: "🇨🇱 Hablemos de Chile",
+    jid: "tg:hablemos-de-chile",
+    group: "Hablemos de Chile (Telegram)",
+    about: "A general Chilean-market chat: members' views on Chilean stocks, the economy and politics. Opinions are chat; forwarded notices and data are dated facts.",
+  },
+];
+/** The dividends chat, which the bundle's per-name dividend history reads. */
+export const CL_TELEGRAM_GROUP = CL_TELEGRAM_CHATS[0].group;
+export const CL_TELEGRAM_GROUPS = CL_TELEGRAM_CHATS.map((c) => c.group);
 
 /** Every group the Chilean analysis reads. */
-export const CL_SOURCES = [CL_GROUP, CL_TELEGRAM_GROUP];
+export const CL_SOURCES = [CL_GROUP, ...CL_TELEGRAM_GROUPS];
 
 export const CL_DIR = join(process.cwd(), ".whatsapp", "cl");
 export const CL_REPORTS = join(CL_DIR, "reports");

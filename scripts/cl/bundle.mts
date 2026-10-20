@@ -12,7 +12,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  BENCHMARK, CASH_APR_FALLBACK, CL_BANKS, CL_BOOK_HISTORY, CL_GROUP, CL_HOLDINGS, CL_TELEGRAM_GROUP, CL_MACRO, CL_REPORTS,
+  BENCHMARK, CASH_APR_FALLBACK, CL_BANKS, CL_BOOK_HISTORY, CL_GROUP, CL_HOLDINGS, CL_TELEGRAM_CHATS, CL_TELEGRAM_GROUPS, CL_MACRO, CL_REPORTS,
   CL_SECTORS, COMMISSION_PC, COMMISSION_VERIFIED, IPSA_MEMBERS, RISK_PER_POSITION, clSectorOf, fromYahoo, yahooSymbol,
 } from "@/lib/cl/config";
 import type { ClStatement } from "@/lib/cl/holdings";
@@ -31,8 +31,9 @@ const opt = (name: string) => {
 const TODAY = new Date().toLocaleDateString("en-CA", { timeZone: "America/Santiago" });
 const fullDetailDays = Number(opt("full-detail-days") ?? 7);
 const windowDays = Number(opt("days") ?? 90);
-// The Telegram group posts ~400 messages a month; its dividend notices are
-// pulled out over a year below, so its chat is read over a shorter window.
+// The Telegram groups are busy (Dividendos Chile posts ~400 messages a
+// month); their dividend posts are pulled out over a year below, so their
+// chat is read over a shorter window.
 const telegramDays = Number(opt("telegram-days") ?? 30);
 const outPath = opt("out") ?? join(CL_REPORTS, `${TODAY}.bundle.md`);
 
@@ -447,8 +448,15 @@ say();
 
 // ── The corpus ───────────────────────────────────────────────────────────────
 
-const sections: [string, number][] = [[CL_GROUP, windowDays], [CL_TELEGRAM_GROUP, telegramDays]];
-for (const [group, days] of sections) {
+const sections: [string, number, string][] = [
+  [CL_GROUP, windowDays, "The main analyst's group. Sparse: a quiet week is normal and is not a stale sync. Senders are opaque ids except the main analyst."],
+  ...CL_TELEGRAM_CHATS.map((c): [string, number, string] => [
+    c.group,
+    telegramDays,
+    `${c.about} Telegram, imported from an export: it is only as fresh as the last export. The main analyst is not in it: nothing here is an ADD.`,
+  ]),
+];
+for (const [group, days, about] of sections) {
   const jids = listGroupJidsByName([group]);
   const content = getGroupContent(jids, days, 6000);
   const textRows = content.filter((r) => r.body && !/^\[(image|document|video|audio|sticker)\]$/.test(r.body));
@@ -458,25 +466,23 @@ for (const [group, days] of sections) {
   say(`## Source: ${group} (last ${days} days)`);
   say();
   if (!jids.length) {
-    say(`⚠ ${group} is not in the database${group === CL_TELEGRAM_GROUP ? ": import the export with scripts/cl/telegram.ts" : ""}.`);
+    say(`⚠ ${group} is not in the database${group !== CL_GROUP ? ": import its export with scripts/cl/telegram.ts" : ""}.`);
     say();
     continue;
   }
-  say(`${textRows.length} text messages and ${mediaRows.length} digested files. Newest message: ` +
-    `${newest ? new Date(newest.ts * 1000).toISOString().slice(0, 16).replace("T", " ") + " UTC" : "none"}.` +
-    (undigested ? ` ${undigested} file(s) are not digested and invisible here.` : ""));
-  say(group === CL_GROUP
-    ? "The main analyst's group. Sparse: a quiet week is normal and is not a stale sync. Senders are opaque ids except the main analyst."
-    : "A dividend investors' group (Telegram, imported from an export: it is only as fresh as the last export). Members post " +
-      "forwarded CMF material-fact notices (\"Hecho Esencial\": dividend amounts, record and payment dates), which are FACTS " +
-      "about dividends; their opinions are chat. The main analyst is not in it: nothing here is an ADD.");
+  const stored = newest ?? getGroupContent(jids, 3650, 1)[0];
+  say(`${textRows.length} text messages and ${mediaRows.length} digested files. Newest message stored: ` +
+    `${stored ? new Date(stored.ts * 1000).toISOString().slice(0, 16).replace("T", " ") + " UTC" : "none"}.` +
+    (undigested ? ` ${undigested} file(s) are not digested and invisible here.` : "") +
+    (!newest && stored ? " ⚠ Nothing in the window: the export is stale. Say so; do not read silence as a quiet market." : ""));
+  say(about);
   say();
   say(renderTextBlock(textRows));
   say(renderMediaDigestBlock(mediaRows, { transcriptSince: Math.floor(Date.now() / 1000) - fullDetailDays * 86400 }));
 }
 
 // Dividend notices over a year, for the names the book holds or watches: the
-// Telegram group's forwarded material facts are the record of what each
+// Telegram groups' forwarded material facts are the record of what each
 // company declared, which TradingView's yield only summarises.
 const watched = [...new Set([...held, ...ledger.map((a) => a.ticker), ...(opt("watch")?.split(",") ?? [])])];
 const names = new Map(watched.map((t) => {
@@ -485,12 +491,12 @@ const names = new Map(watched.map((t) => {
   return [t, [t.replace(/-.*$/, ""), word].filter((w) => w && w.length > 3).map((w) => w.toUpperCase())];
 }));
 const plain = (x: string) => x.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
-const year = getGroupContent(listGroupJidsByName([CL_TELEGRAM_GROUP]), 365, 100000)
+const year = getGroupContent(listGroupJidsByName(CL_TELEGRAM_GROUPS), 365, 100000)
   .filter((r) => r.body && /dividend|reparto de utilidades/i.test(r.body));
 const isNotice = (b: string) => /hecho esencial/i.test(b);
 const tidy = (b: string) =>
   b.replace(/📅\s*Nuevo Hecho Esencial!\s*/g, "Hecho Esencial: ").replace(/Abrir PDF \([^)]*\)/g, "").replace(/\s+/g, " ").trim();
-say("## Dividend mentions, last 365 days (Telegram, held and watched names)");
+say("## Dividend mentions, last 365 days (Telegram groups, held and watched names)");
 say();
 say("Formal notices (Hecho Esencial, forwarded from the CMF feed) first, then members' posts; up to six per name, newest first. " +
   "A notice is a declaration: say whether it is provisional (provisorio) or final (definitivo). A member's post is hearsay until a notice or the price data confirms it.");
@@ -502,7 +508,7 @@ for (const t of watched) {
   say(`### ${t}${hits.length ? "" : " — nothing in the year"}`);
   for (const r of hits) {
     const text = tidy(r.body!);
-    say(`- [${new Date(r.ts * 1000).toISOString().slice(0, 10)}] ${isNotice(r.body!) ? "NOTICE · " : `${r.sender ?? "?"}: `}${text.length > 900 ? text.slice(0, 900) + " …" : text}`);
+    say(`- [${new Date(r.ts * 1000).toISOString().slice(0, 10)}] ${isNotice(r.body!) ? "NOTICE · " : `${r.sender ?? "?"}: `}${text.length > (isNotice(r.body!) ? 900 : 400) ? text.slice(0, isNotice(r.body!) ? 900 : 400) + " …" : text}`);
   }
   say();
 }

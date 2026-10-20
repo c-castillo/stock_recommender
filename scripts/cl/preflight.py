@@ -163,7 +163,7 @@ def whatsapp(sync, backfill):
 
 
 def telegram():
-    say("\n## 3. Telegram (Dividendos Chile, from the newest export)")
+    say("\n## 3. Telegram (Dividendos Chile, Hablemos de Chile, from the newest exports)")
     res = tsx("scripts/cl/telegram.ts")
     if res.returncode == 2:
         say("No Telegram export found in ~/Downloads/Telegram Desktop: the run goes on with what is stored.")
@@ -172,13 +172,14 @@ def telegram():
         say("⚠ The Telegram import failed and the run goes on with what is stored: " + (res.stderr or res.stdout).strip()[-300:])
         return {"imported": False}
     say(res.stdout.strip())
-    found = re.search(r"→ (\d{4}-\d{2}-\d{2})\)", res.stdout)
-    newest = found.group(1) if found else None
-    age = (NOW.date() - dt.date.fromisoformat(newest)).days if newest else None
-    if age is not None and age > 3:
-        say(f"⚠ The newest Telegram message is {age} days old: export the group again from Telegram Desktop "
-            "(Export chat history, HTML, photos) into ~/Downloads/Telegram Desktop.")
-    return {"imported": True, "newest": newest, "ageDays": age, "summary": res.stdout.strip()}
+    chats = {}
+    for group, newest in re.findall(r"^(.+?): \d+ messages parsed \(\S+ → (\d{4}-\d{2}-\d{2})\)", res.stdout, re.M):
+        age = (NOW.date() - dt.date.fromisoformat(newest)).days
+        chats[group] = {"newest": newest, "ageDays": age}
+        if age > 3:
+            say(f"⚠ {group}: the newest message is {age} days old. Export the chat again from Telegram Desktop "
+                "(Export chat history, HTML, photos) into ~/Downloads/Telegram Desktop.")
+    return {"imported": True, "chats": chats, "summary": res.stdout.strip()}
 
 
 def depth(forced, prev):

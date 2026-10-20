@@ -59,9 +59,12 @@ python3 scripts/cl/preflight.py            # add `weekly` to force the review, `
 ```
 
 It reads a new statement, syncs the IPSA group alone (one reconnect, a
-backfill on a gap), imports the newest Telegram export of the Dividendos Chile
-group (`~/Downloads/Telegram Desktop/ChatExport_*`; it warns when the newest
-message is over 3 days old, which means the user should export it again),
+backfill on a gap), imports the newest Telegram export of each Telegram source
+— Dividendos Chile and Hablemos de Chile — from
+`~/Downloads/Telegram Desktop/ChatExport_*`, matched by the chat name in the
+export (an export of any other chat is skipped; it warns per chat when the
+newest message is over 3 days old, which means the user should export it
+again),
 prints the corpus status and writes `TODAY.run.json`. It
 ends with the lines for the analyst's prompt: TODAY, DEPTH, PREV,
 `fullDetailDays`, the session and the statement.
