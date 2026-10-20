@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The Chilean run after the Santiago close: 17:30 local time, Monday to Friday.
+  Santiago trades 09:30-16:00, so the report is written on that day's closes
+  and its orders are for the next open. Friday's run is the weekly review.
+  It shares the US run's lock, which starts at 08:30 and is long finished.
+
+  Install or remove with scripts/cl/scheduled-run.sh (install / remove flags).
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.stock-recommender.chile-run</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>/Users/cristobalcastillo/stock_recommender/scripts/cl/scheduled-run.sh</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/cristobalcastillo/stock_recommender</string>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>17</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>17</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>17</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>17</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>17</integer><key>Minute</key><integer>30</integer></dict>
+  </array>
+  <key>StandardOutPath</key>
+  <string>/Users/cristobalcastillo/stock_recommender/.whatsapp/logs/launchd-chile.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/cristobalcastillo/stock_recommender/.whatsapp/logs/launchd-chile.log</string>
+</dict>
+</plist>
