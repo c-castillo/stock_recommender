@@ -4,6 +4,9 @@
  *   pnpm exec tsx scripts/cl/cmf.mts sync [TICKER …]   # held + active ADDs when none is given
  *   pnpm exec tsx scripts/cl/cmf.mts show TICKER [--days 90]
  *
+ * `sync` also stores the latest period's statements (XBRL) and last
+ * December's, which the bundle's "Financial statements" section reads.
+ *
  * `sync` exits 0 when every name synced, 1 when some failed (the others are
  * kept), so the preflight can go on with what is stored.
  */
@@ -46,6 +49,7 @@ if (cmd === "sync") {
       const next = nextDuePeriod(r.calendar, TODAY);
       console.log(`${t}: ${r.notices.length} notices in the year (${recent.length} in 30 days, ${r.notices.filter(isDividendNotice).length} on dividends)` +
         ` · latest statements ${r.report?.period ?? "—"}${r.report && !r.report.text ? " (no análisis razonado)" : ""}` +
+        `${r.report ? (r.statements ? ` · XBRL${r.december ? " + December" : ""}` : " · no XBRL") : ""}` +
         ` · next due ${next ? `${next.due} (${next.year}-${next.month})` : "not set"}`);
     } catch (e) {
       failed.push(t);

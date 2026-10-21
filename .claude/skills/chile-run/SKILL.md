@@ -67,8 +67,11 @@ export (an export of any other chat is skipped; it warns per chat when the
 newest message is over 3 days old, which means the user should export it
 again),
 syncs each held and ADD name's CMF filings from cmfchile.cl (`scripts/cl/cmf.mts sync`: the year's material facts with their
-texts — scans read by macOS OCR —, the statements calendar and the latest
-análisis razonado, cached in `.whatsapp/cl/cmf/`; the first run compiles the
+texts — scans read by macOS OCR —, the statements calendar, the latest
+análisis razonado and the statements' XBRL (with last December's, for twelve
+months; the bundle splits each profit into business and accounting lines and
+gives P/E, P/B and ROE against the sector — banks and AFPs file no XBRL there),
+cached in `.whatsapp/cl/cmf/`; the first run compiles the
 OCR helper, about a minute; a failed CMF sync is not a stop),
 prints the corpus status and writes `TODAY.run.json`. It
 ends with the lines for the analyst's prompt: TODAY, DEPTH, PREV,
@@ -154,6 +157,9 @@ Only publish a report that passed step 3.
   backfilled.
 - CMF: names synced, new material facts since the last run, results due in
   the next 10 days, any name that failed to sync.
+- Earnings quality: the held names whose profit the statements flag (growth
+  not from the business, deferred tax, exchange or indexation lines), with
+  their P/E against the sector median.
 - Files digested, chart skills loaded, stale editions, anything undigested.
 - The depth, and any ADD recorded in the Chilean ledger this run.
 - The 🩺 Portfolio health section with the Stops table.

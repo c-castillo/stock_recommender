@@ -1,13 +1,14 @@
 /**
  * The CMF's own record of each Chilean issuer: material facts (hechos
  * esenciales, which carry every dividend declaration), the dates each
- * quarter's statements are due, and the quarter's management discussion
- * (análisis razonado). It is the regulator's public site, read without a
- * login; Zesty's connector and web app carry none of it.
+ * quarter's statements are due, the quarter's management discussion
+ * (análisis razonado) and its statements (XBRL). It is the regulator's public
+ * site, read without a login; Zesty's connector and web app carry none of it.
  *
  * Everything fetched is kept under `.whatsapp/cl/cmf/`: `index.json` holds the
- * lists, `he/<doc>.txt` and `ar/<rut>-<period>.txt` the texts of the PDFs, so
- * a document is downloaded once. `scripts/cl/cmf.mts sync` fills it before the
+ * lists, `he/<doc>.txt` and `ar/<rut>-<period>.txt` the texts of the PDFs,
+ * `eeff/<rut>-<period>.json` the statements' facts, so a document is
+ * downloaded once. `scripts/cl/cmf.mts sync` fills it before the
  * analysis; the bundle only reads it.
  */
 import { execFileSync } from "node:child_process";
@@ -15,6 +16,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CL_DIR } from "@/lib/cl/config";
+import { parseXbrl } from "@/lib/cl/financials";
 
 export const CMF_DIR = join(CL_DIR, "cmf");
 export const CMF_INDEX = join(CMF_DIR, "index.json");
@@ -92,6 +94,10 @@ export interface CmfIssuerRecord {
   notices: CmfNotice[];
   calendar: CmfCalendar;
   report: CmfReport | null;
+  /** Paths under CMF_DIR of the latest period's statements and of last
+   *  December's (`CmfStatements` JSON); null for a bank or when not filed. */
+  statements?: string | null;
+  december?: string | null;
   /** Why the last sync could not complete, if it could not. */
   error?: string;
 }
@@ -241,24 +247,66 @@ export function nextDuePeriod(cal: CmfCalendar, today: string): { year: string; 
   return next[0] ?? null;
 }
 
+/** A period's statements page: consolidated first; an issuer without
+ *  subsidiaries (ZOFRI, the AFPs) files only individual ones. Kept for the
+ *  run, so the análisis razonado and the XBRL come from one request. */
+const pages = new Map<string, Promise<{ html: string; tipo: "C" | "I" } | null>>();
+function statementsPage(ticker: string, year: string, month: string) {
+  const key = `${ticker}|${year}${month}`;
+  if (!pages.has(key)) {
+    pages.set(key, (async () => {
+      for (const tipo of ["C", "I"] as const) {
+        const html = await get(entityUrl(ticker, 3), { forma: "P", mm: month, aa: year, tipo, tipo_norma: "IFRS" });
+        if (/safec_ifrs_verarchivo/.test(html)) return { html, tipo };
+      }
+      return null;
+    })());
+  }
+  return pages.get(key)!;
+}
+
+const fileLink = (html: string, label: RegExp) => {
+  const href = [...html.matchAll(/href="([^"]*safec_ifrs_verarchivo[^"]*)"[^>]*>\s*([^<]*)/gi)].find((m) => label.test(m[2]))?.[1];
+  return href ? new URL(href.replace(/&amp;/g, "&"), "https://www.cmfchile.cl/institucional/mercados/").toString() : null;
+};
+
 async function fetchReport(ticker: string, year: string, month: string): Promise<CmfReport> {
   const period = `${year}-${month}`;
   const file = join("ar", `${CMF_ISSUER[ticker].rut}-${year}${month}.txt`);
   if (existsSync(join(CMF_DIR, file))) return { period, text: file };
   if (CMF_ISSUER[ticker].bank) return { period, text: null };
-  // Consolidated statements first; an issuer without subsidiaries (ZOFRI,
-  // the AFPs) files only individual ones.
-  let href: string | undefined;
-  for (const tipo of ["C", "I"]) {
-    const html = await get(entityUrl(ticker, 3), { forma: "P", mm: month, aa: year, tipo, tipo_norma: "IFRS" });
-    href = html.match(/href="([^"]*safec_ifrs_verarchivo[^"]*)"[^>]*>\s*An[^<]*lisis Razonado/i)?.[1];
-    if (href) break;
-  }
-  if (!href) return { period, text: null };
-  const { text } = await fetchPdf(new URL(href.replace(/&amp;/g, "&"), "https://www.cmfchile.cl/institucional/mercados/").toString());
+  const page = await statementsPage(ticker, year, month);
+  const url = page && fileLink(page.html, /^An.lisis Razonado/i);
+  if (!url) return { period, text: null };
+  const { text } = await fetchPdf(url);
   mkdirSync(join(CMF_DIR, "ar"), { recursive: true });
   writeFileSync(join(CMF_DIR, file), text);
   return { period, text: file };
+}
+
+/** A period's statements from its XBRL filing, cached as the facts the
+ *  analysis reads (`eeff/<rut>-<period>.json`); null for a bank, or when the
+ *  CMF has no XBRL for the period. */
+async function fetchStatements(ticker: string, year: string, month: string): Promise<string | null> {
+  const file = join("eeff", `${CMF_ISSUER[ticker].rut}-${year}${month}.json`);
+  if (existsSync(join(CMF_DIR, file))) return file;
+  if (CMF_ISSUER[ticker].bank) return null;
+  const page = await statementsPage(ticker, year, month);
+  const url = page && fileLink(page.html, /^Estados financieros \(XBRL\)/i);
+  if (!url) return null;
+  const res = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(120_000) });
+  if (!res.ok) throw new Error(`CMF answered ${res.status} for the XBRL`);
+  const tmp = join(tmpdir(), `cmf-${process.pid}-${Date.now()}.zip`);
+  writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
+  try {
+    // The instance document is ISO-8859-1.
+    const xml = execFileSync("unzip", ["-p", tmp, "*.xbrl"], { encoding: "latin1", maxBuffer: 256 * 1024 * 1024, timeout: 120_000 });
+    mkdirSync(join(CMF_DIR, "eeff"), { recursive: true });
+    writeFileSync(join(CMF_DIR, file), JSON.stringify(parseXbrl(xml, `${year}-${month}`, page!.tipo)));
+    return file;
+  } finally {
+    execFileSync("rm", ["-f", tmp]);
+  }
 }
 
 /**
@@ -306,7 +354,10 @@ export async function syncIssuer(
   const calendar = await listCalendar(ticker);
   const last = latestFiledPeriod(calendar, today);
   const report = last ? await fetchReport(ticker, last.year, last.month) : null;
-  return { rut, syncedAt: new Date().toISOString(), notices, calendar, report };
+  // Twelve months need last December's year too (lib/cl/financials.ts).
+  const statements = last ? await fetchStatements(ticker, last.year, last.month) : null;
+  const december = last && last.month !== "12" ? await fetchStatements(ticker, String(Number(last.year) - 1), "12") : null;
+  return { rut, syncedAt: new Date().toISOString(), notices, calendar, report, statements, december };
 }
 
 /** The body of a notice, without the letterhead and the salutation. */

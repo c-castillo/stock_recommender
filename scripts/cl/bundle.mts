@@ -13,9 +13,10 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { join } from "node:path";
 import {
   BENCHMARK, CASH_APR_FALLBACK, CL_BANKS, CL_BOOK_HISTORY, CL_GROUP, CL_HOLDINGS, CL_TELEGRAM_CHATS, CL_TELEGRAM_GROUPS, CL_MACRO, CL_REPORTS,
-  CL_SECTORS, COMMISSION_PC, COMMISSION_VERIFIED, IPSA_MEMBERS, RISK_PER_POSITION, clSectorOf, fromYahoo, yahooSymbol,
+  CL_SECTORS, CL_SECTOR_OF, COMMISSION_PC, COMMISSION_VERIFIED, IPSA_MEMBERS, RISK_PER_POSITION, clSectorOf, fromYahoo, yahooSymbol,
 } from "@/lib/cl/config";
 import { CMF_DIR, CMF_ISSUER, isDividendNotice, latestFiledPeriod, loadCmfIndex, nextDuePeriod, noticeBody } from "@/lib/cl/cmf";
+import { renderFinancials, type CmfStatements } from "@/lib/cl/financials";
 import type { ClStatement } from "@/lib/cl/holdings";
 import { clAddStatus, loadClLedger } from "@/lib/cl/ledger";
 import { loadClRoles, suggestRole } from "@/lib/cl/roles";
@@ -149,6 +150,8 @@ type TvRow = {
   /** Dividend fields; null where TradingView has none (a payout of 0 means unknown). */
   yieldPc: number | null; payout: number | null; nextEx: string | null; nextAmount: number | null;
   lastEx: string | null; dps: number | null; dpsYoy: number | null; yearsPaying: number | null;
+  /** TradingView's own P/E (12 months), P/B and ROE: the check on the CMF figures, and the only ones for banks and AFPs. */
+  pe: number | null; pb: number | null; roe: number | null;
 };
 async function tradingView(names: string[]): Promise<Map<string, TvRow>> {
   const out = new Map<string, TvRow>();
@@ -162,13 +165,13 @@ async function tradingView(names: string[]): Promise<Map<string, TvRow>> {
           "close", "SMA50", "SMA200", "Perf.1M", "Perf.3M", "Perf.YTD", "price_52_week_high", "price_52_week_low",
           "dividends_yield_current", "dividend_payout_ratio_ttm", "dividend_ex_date_upcoming", "dividend_amount_upcoming",
           "dividend_ex_date_recent", "dps_common_stock_prim_issue_fy", "dps_common_stock_prim_issue_yoy_growth_fy",
-          "continuous_dividend_payout",
+          "continuous_dividend_payout", "price_earnings_ttm", "price_book_fq", "return_on_equity",
         ],
       }),
       signal: AbortSignal.timeout(15000),
     });
     for (const r of (await res.json()).data ?? []) {
-      const [close, sma50, sma200, m1, m3, ytd, hi, lo, yld, payout, nextEx, nextAmount, lastEx, dps, dpsYoy, years] = r.d;
+      const [close, sma50, sma200, m1, m3, ytd, hi, lo, yld, payout, nextEx, nextAmount, lastEx, dps, dpsYoy, years, pe, pb, roe] = r.d;
       const day = (t: number | null) => (t ? new Date(t * 1000).toISOString().slice(0, 10) : null);
       out.set(r.s.replace(/^BCS:/, "").replace(/_/g, "-"), {
         close, sma50, sma200, m1, m3, ytd, hi, lo,
@@ -176,6 +179,7 @@ async function tradingView(names: string[]): Promise<Map<string, TvRow>> {
         payout: payout ? payout / 100 : null,
         nextEx: day(nextEx), nextAmount: nextAmount ?? null, lastEx: day(lastEx),
         dps: dps ?? null, dpsYoy: dpsYoy != null ? dpsYoy / 100 : null, yearsPaying: years ?? null,
+        pe: pe ?? null, pb: pb ?? null, roe: roe != null ? roe / 100 : null,
       });
     }
   } catch {
@@ -183,7 +187,7 @@ async function tradingView(names: string[]): Promise<Map<string, TvRow>> {
   }
   return out;
 }
-const tv = await tradingView([...new Set([...held, ...ledger.map((a) => a.ticker), ...IPSA_MEMBERS, "CFMITNIPSA"])]);
+const tv = await tradingView([...new Set([...held, ...ledger.map((a) => a.ticker), ...IPSA_MEMBERS, ...Object.keys(CL_SECTOR_OF), "CFMITNIPSA"])]);
 const staleBars = new Map<string, number>();
 for (const [sym, bars] of closes) {
   const last = bars.slice(-125);
@@ -569,6 +573,60 @@ if (!Object.keys(cmf).length) {
     else if (r.report) say(`- Statements ${r.report.period} filed; the CMF has no análisis razonado for it${CMF_ISSUER[t]?.bank ? " (banks publish theirs on their own site)" : ""}.`);
     say();
   }
+}
+
+// ── Financial statements ─────────────────────────────────────────────────────
+
+// From the XBRL each issuer files with the CMF (lib/cl/financials.ts): where
+// the profit comes from, and P/E, P/B and ROE on twelve months.
+say("## Financial statements (CMF XBRL — FACTS) and valuation");
+say();
+say("Each name's latest statements as filed with the CMF, split by where the profit before tax comes from. **Business** is the result of " +
+  "running the company; exchange differences, indexation (unidades de reajuste), biological revaluation and other income/expenses/gains are " +
+  "accounting or one-off lines; finance and associates recur. Deferred tax is the part of the tax that is not paid in cash this period. " +
+  "Twelve months = this year to date + last December's year − last year's same year to date. P/E and P/B use the TradingView close, and a " +
+  "filing in USD is converted at the statement's CLP/USD. Apply the playbook's EARNINGS QUALITY rule: a P/E is only as good as the profit under it.");
+say();
+// A P/E is read against the sector's, never alone.
+const sectorsWatched = [...new Set(watched.map(clSectorOf).filter((x): x is NonNullable<typeof x> => !!x))];
+if (sectorsWatched.length) {
+  say("Sector peers (TradingView, twelve months; * = in the book or the ledger):");
+  say();
+  say("Sub-sector|Ticker|P/E|P/B|ROE|Median P/E of the sub-sector");
+  say("---|---|---|---|---|---");
+  for (const sec of sectorsWatched) {
+    const peers = Object.entries(CL_SECTOR_OF).filter(([, x]) => x === sec).map(([t]) => t).filter((t) => tv.has(t));
+    const pes = peers.map((t) => tv.get(t)!.pe).filter((x): x is number => x != null && x > 0).sort((a, b) => a - b);
+    const median = pes.length ? (pes.length % 2 ? pes[(pes.length - 1) / 2] : (pes[pes.length / 2 - 1] + pes[pes.length / 2]) / 2) : null;
+    peers.forEach((t, i) => {
+      const d = tv.get(t)!;
+      say(`${i ? "" : CL_SECTORS[sec].label}|${t}${watched.includes(t) ? "*" : ""}|${clp(d.pe, 1)}|${clp(d.pb, 2)}|${d.roe != null ? share(d.roe) : "—"}|${i ? "" : clp(median, 1)}`);
+    });
+  }
+  say();
+}
+
+const usdClp = statement.usdClp ?? null;
+for (const t of watched) {
+  const r = cmf[t];
+  const d = tv.get(t);
+  const price = d?.close ?? rows.find((x) => x.p.ticker === t)?.price ?? techOf.get(t)?.last;
+  const tvLine = d ? `TradingView: P/E ${clp(d.pe, 2)}, P/B ${clp(d.pb, 2)}, ROE ${d.roe != null ? share(d.roe) : "—"}.` : "TradingView did not answer.";
+  const cur = r?.statements ? (JSON.parse(readFileSync(join(CMF_DIR, r.statements), "utf8")) as CmfStatements) : null;
+  if (!cur || !price) {
+    const why = CMF_ISSUER[t]?.bank ? "a bank: it files under the banking registry, outside the CMF's XBRL; its profit is not split here (provisions, " +
+        "indexation of the UF book and trading gains drive it — read its results release)"
+      : r?.report ? "no XBRL at the CMF (the AFPs file their statements as PDF only; the return on the encaje, the reserve each AFP invests " +
+        "alongside its funds, is the line that swings their profit — read it in the análisis razonado)"
+      : "not synced";
+    say(`#### ${t} — ${why}.`);
+    say(tvLine);
+    say();
+    continue;
+  }
+  const dec = r!.december ? (JSON.parse(readFileSync(join(CMF_DIR, r!.december), "utf8")) as CmfStatements) : null;
+  for (const l of renderFinancials(t, cur, dec, price, usdClp, d ? { pe: d.pe, pb: d.pb, roe: d.roe } : null)) say(l);
+  say();
 }
 
 // ── Prior reports (NOT evidence) ─────────────────────────────────────────────

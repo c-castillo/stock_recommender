@@ -29,6 +29,7 @@ US ADD ledger: they are the US book's. Everything you need is here:
 | The book as the statement has it | `pnpm exec tsx scripts/cl/holdings.ts --latest` |
 | The Chilean ADD ledger | `pnpm exec tsx scripts/cl/adds.ts list / record / deactivate` |
 | A name's CMF filings: material facts, dividends, results | The bundle's "CMF filings" section; more with `pnpm exec tsx scripts/cl/cmf.mts show TICKER --days 365`, and the análisis razonado text at the path the bundle gives. `cmf.mts sync TICKER` refreshes one name (a watchlist name not held is synced on demand) |
+| Where a name's profit comes from; P/E, P/B, ROE against its sector | The bundle's "Financial statements" section (each issuer's XBRL at the CMF, split into business and accounting lines, with twelve-month ratios and the sector peer table). For a name not held: `cmf.mts sync TICKER`, then build the bundle with `--watch TICKER` |
 | Live price, order book, presencia bursátil | Zesty connector, read-only: `mcp__claude_ai_Zesty__get_asset_details` with `market: "cl"` (load it with ToolSearch). Never a `preview_*`, `confirm_*` or `cancel_order` call: the book is at Itaú |
 | Raw material for an own chart read | `python3 scripts/chart-read.py COPEC.SN SQM-B.SN …` (Yahoo symbols, `.SN`) |
 
@@ -125,6 +126,13 @@ US ADD ledger: they are the US book's. Everything you need is here:
   hearsay where a CMF notice says otherwise. For a name you BUY or SELL whose
   results came out since the last report, read its análisis razonado and cite
   the period. Banks have no análisis razonado at the CMF: say so.
+- **A profit is not a business's until the split says so.** Before you call
+  a name cheap, dear, improving or deteriorating, read its block in the
+  bundle's "Financial statements" section (EARNINGS QUALITY): growth that
+  came from exchange differences, indexation, revaluations, a tax credit or
+  deferred tax is not growth, and a P/E on it is flattered. Quote the P/E
+  against the sector median from the peer table, and the business-only ROE
+  next to the reported one.
 - **Prices come from the bundle.** Never take an entry from a message or an
   old report (PRICE THE PRESENT). For a ticker the bundle does not price,
   fetch it with `chart-read.py` and say so.
