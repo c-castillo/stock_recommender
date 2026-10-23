@@ -12,7 +12,7 @@
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { CL_HOLDINGS } from "@/lib/cl/config";
+import { CL_HOLDINGS, CL_WATCHLIST } from "@/lib/cl/config";
 import {
   CMF_DIR, CMF_ISSUER, isDividendNotice, loadCmfIndex, nextDuePeriod, noticeBody, saveCmfIndex, syncIssuer,
 } from "@/lib/cl/cmf";
@@ -31,7 +31,7 @@ function bookNames(): string[] {
   const held = files.length
     ? (JSON.parse(readFileSync(join(CL_HOLDINGS, files.at(-1)!), "utf8")) as ClStatement).positions.map((p) => p.ticker)
     : [];
-  return [...new Set([...held, ...loadClLedger().filter((a) => a.active).map((a) => a.ticker)])];
+  return [...new Set([...held, ...loadClLedger().filter((a) => a.active).map((a) => a.ticker), ...Object.keys(CL_WATCHLIST)])];
 }
 
 if (cmd === "sync") {

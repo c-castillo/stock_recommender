@@ -6,14 +6,15 @@
  *   pnpm exec tsx scripts/cl/corpus.ts status
  *   pnpm exec tsx scripts/cl/corpus.ts pending-media [--days 120] [--limit 30]
  *   pnpm exec tsx scripts/cl/corpus.ts save-digest <id> @digest.json
- *   pnpm exec tsx scripts/cl/corpus.ts search <text> [--days 180]
+ *   pnpm exec tsx scripts/cl/corpus.ts search <text> [--days 180] [--telegram]
+ *   pnpm exec tsx scripts/cl/corpus.ts read [--days 3] [--limit 400] [--telegram | --chat <name>]
  *
  * The MCP server's `pending_media` and `save_media_digest` only see the US
  * groups, so the Chilean digester uses this instead: the same rules, the same
  * column, so a file is read once.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { CL_SOURCES } from "@/lib/cl/config";
+import { CL_SOURCES, CL_TELEGRAM_GROUPS } from "@/lib/cl/config";
 import { digestSchema, PROMPT, STUDIES_PROMPT, TRANSCRIBE_PROMPT } from "@/lib/ai/media-prompts";
 import { getGroupContent, isMainAnalyst, listGroupJidsByName, setMediaDigest } from "@/lib/whatsapp/db";
 
@@ -23,9 +24,24 @@ const opt = (name: string, dflt: number) => {
   const i = args.indexOf(`--${name}`);
   return i >= 0 ? Number(args[i + 1]) : dflt;
 };
-const jids = listGroupJidsByName(CL_SOURCES);
+const flag = (name: string) => args.includes(`--${name}`);
+const str = (name: string) => {
+  const i = args.indexOf(`--${name}`);
+  return i >= 0 ? args[i + 1] : undefined;
+};
+/** `--chat` takes part of a source's name ("hablemos", "dividendos");
+ *  `--telegram` keeps the Telegram sources alone. */
+const chat = str("chat")?.toLowerCase();
+const sources = CL_SOURCES.filter((g) =>
+  chat ? g.toLowerCase().includes(chat) : !flag("telegram") || CL_TELEGRAM_GROUPS.includes(g)
+);
+if (chat && sources.length === 0) {
+  console.error(`No source matches "${chat}": ${CL_SOURCES.join(", ")}.`);
+  process.exit(2);
+}
+const jids = listGroupJidsByName(sources);
 if (jids.length === 0) {
-  console.error(`None of ${CL_SOURCES.join(", ")} is in the database: refresh the WhatsApp groups / import the Telegram export.`);
+  console.error(`None of ${sources.join(", ")} is in the database: refresh the WhatsApp groups / import the Telegram export.`);
   process.exit(2);
 }
 /** The Telegram groups are busy and their photos are mostly screenshots of
@@ -98,7 +114,15 @@ if (cmd === "status") {
   );
   for (const r of hits.slice(0, 80)) console.log(`[${stamp(r.ts)}] ${r.group_name} · ${who(r.sender)}: ${r.body}`);
   console.log(`${hits.length} match(es).`);
+} else if (cmd === "read") {
+  // Oldest first, so a thread reads in order; the newest `--limit` are kept.
+  const rows = getGroupContent(jids, opt("days", 3), opt("limit", 400)).reverse();
+  for (const r of rows) {
+    const digest = r.media_digest ? ` [digest: ${(JSON.parse(r.media_digest).summary ?? "").replace(/\s+/g, " ")}]` : "";
+    console.log(`[${stamp(r.ts)}] ${r.group_name} · #${r.id.split(":").at(-1)} · ${who(r.sender)}: ${r.body}${digest}`);
+  }
+  console.log(`${rows.length} message(s).`);
 } else {
-  console.error("usage: corpus.ts status | pending-media | save-digest <id> @file.json | search <text>");
+  console.error("usage: corpus.ts status | pending-media | save-digest <id> @file.json | search <text> | read [--telegram | --chat <name>]");
   process.exit(2);
 }

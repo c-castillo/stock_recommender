@@ -4,10 +4,13 @@ overrides:
   postcss: '>=8.5.10'
 allowBuilds:
   better-sqlite3: true
+  bufferutil: false
+  es5-ext: false
   esbuild: true
   puppeteer: true
   sharp: true
   unrs-resolver: true
+  utf-8-validate: false
 minimumReleaseAgeExclude:
   - '@anthropic-ai/sdk@0.112.1'
 patchedDependencies:

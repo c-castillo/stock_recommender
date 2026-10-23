@@ -9,9 +9,9 @@
 In order: the dashboard; a new Itaú statement, if one was dropped in the
 project root or in ~/Downloads (`informeMensual*.pdf`), read into the book and
 filed away; the WhatsApp sync of the IPSA group alone (one reconnect, and a
-backfill when it reports a gap); the newest Telegram export of the Dividendos
-Chile group (`~/Downloads/Telegram Desktop/ChatExport_*`), imported again
-(idempotent); the depth. It writes
+backfill when it reports a gap); the Telegram sources, synced live as the
+user's account (scripts/cl/telegram-sync.mts), or from the newest Telegram
+Desktop export when there is no session; the depth. It writes
 
   .whatsapp/cl/reports/TODAY.run.json   what this run is: date, session, depth, statement
 
@@ -163,23 +163,33 @@ def whatsapp(sync, backfill):
 
 
 def telegram():
-    say("\n## 3. Telegram (Dividendos Chile, Hablemos de Chile, from the newest exports)")
-    res = tsx("scripts/cl/telegram.ts")
-    if res.returncode == 2:
-        say("No Telegram export found in ~/Downloads/Telegram Desktop: the run goes on with what is stored.")
-        return {"imported": False}
+    say("\n## 3. Telegram (Dividendos Chile, Hablemos de Chile)")
+    res = tsx("scripts/cl/telegram-sync.mts")
+    source = "sync"
     if res.returncode != 0:
-        say("⚠ The Telegram import failed and the run goes on with what is stored: " + (res.stderr or res.stdout).strip()[-300:])
-        return {"imported": False}
+        why = {3: "no valid session (log in with scripts/cl/telegram-login.mts)",
+               2: "neither chat is among the account's chats"}.get(res.returncode, (res.stderr or res.stdout).strip()[-300:])
+        say(f"⚠ The Telegram sync did not run: {why}. Falling back to the newest exports.")
+        res = tsx("scripts/cl/telegram.ts")
+        source = "export"
+        if res.returncode == 2:
+            say("No Telegram export found in ~/Downloads/Telegram Desktop: the run goes on with what is stored.")
+            return {"imported": False}
+        if res.returncode != 0:
+            say("⚠ The Telegram import failed and the run goes on with what is stored: " + (res.stderr or res.stdout).strip()[-300:])
+            return {"imported": False}
     say(res.stdout.strip())
     chats = {}
-    for group, newest in re.findall(r"^(.+?): \d+ messages parsed \(\S+ → (\d{4}-\d{2}-\d{2})\)", res.stdout, re.M):
+    pattern = (r"^(.+?): \d+ messages fetched.*; newest (\d{4}-\d{2}-\d{2})\.$" if source == "sync"
+               else r"^(.+?): \d+ messages parsed \(\S+ → (\d{4}-\d{2}-\d{2})\)")
+    for group, newest in re.findall(pattern, res.stdout, re.M):
         age = (NOW.date() - dt.date.fromisoformat(newest)).days
         chats[group] = {"newest": newest, "ageDays": age}
         if age > 3:
-            say(f"⚠ {group}: the newest message is {age} days old. Export the chat again from Telegram Desktop "
-                "(Export chat history, HTML, photos) into ~/Downloads/Telegram Desktop.")
-    return {"imported": True, "chats": chats, "summary": res.stdout.strip()}
+            say(f"⚠ {group}: the newest message is {age} days old. "
+                + ("The chat may just be quiet." if source == "sync" else
+                   "Export the chat again from Telegram Desktop (Export chat history, HTML, photos) into ~/Downloads/Telegram Desktop."))
+    return {"imported": True, "source": source, "chats": chats, "summary": res.stdout.strip()}
 
 
 def cmf():

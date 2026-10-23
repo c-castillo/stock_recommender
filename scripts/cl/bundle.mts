@@ -13,7 +13,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { join } from "node:path";
 import {
   BENCHMARK, CASH_APR_FALLBACK, CL_BANKS, CL_BOOK_HISTORY, CL_GROUP, CL_HOLDINGS, CL_TELEGRAM_CHATS, CL_TELEGRAM_GROUPS, CL_MACRO, CL_REPORTS,
-  CL_SECTORS, CL_SECTOR_OF, COMMISSION_PC, COMMISSION_VERIFIED, IPSA_MEMBERS, RISK_PER_POSITION, clSectorOf, fromYahoo, yahooSymbol,
+  CL_SECTORS, CL_SECTOR_OF, CL_WATCHLIST, COMMISSION_PC, COMMISSION_VERIFIED, IPSA_MEMBERS, RISK_PER_POSITION, clSectorOf, fromYahoo, yahooSymbol,
 } from "@/lib/cl/config";
 import { CMF_DIR, CMF_ISSUER, isDividendNotice, latestFiledPeriod, loadCmfIndex, nextDuePeriod, noticeBody } from "@/lib/cl/cmf";
 import { renderFinancials, type CmfStatements } from "@/lib/cl/financials";
@@ -135,7 +135,8 @@ for (const f of holdingFiles) {
 }
 const ledger = loadClLedger().filter((a) => a.active);
 const held = statement.positions.map((p) => p.ticker);
-const tickers = [...new Set([...held, ...ledger.map((a) => a.ticker), ...IPSA_MEMBERS])];
+const extraWatch = opt("watch")?.split(",") ?? [];
+const tickers = [...new Set([...held, ...ledger.map((a) => a.ticker), ...Object.keys(CL_WATCHLIST), ...extraWatch, ...IPSA_MEMBERS])];
 
 const [closes, rrg] = await Promise.all([
   closesFor([...tickers.map(yahooSymbol), BENCHMARK, ...CL_MACRO.map((m) => m.symbol)]),
@@ -187,7 +188,7 @@ async function tradingView(names: string[]): Promise<Map<string, TvRow>> {
   }
   return out;
 }
-const tv = await tradingView([...new Set([...held, ...ledger.map((a) => a.ticker), ...IPSA_MEMBERS, ...Object.keys(CL_SECTOR_OF), "CFMITNIPSA"])]);
+const tv = await tradingView([...new Set([...held, ...ledger.map((a) => a.ticker), ...Object.keys(CL_WATCHLIST), ...extraWatch, ...IPSA_MEMBERS, ...Object.keys(CL_SECTOR_OF), "CFMITNIPSA"])]);
 const staleBars = new Map<string, number>();
 for (const [sym, bars] of closes) {
   const last = bars.slice(-125);
@@ -451,6 +452,22 @@ if (!ledger.length) {
 }
 say();
 
+say("## The user's watchlist (plans set by hand — not ADDs)");
+say();
+say("Give each name a 💡 row (HOLD (watch) unless its plan's conditions are met this session) and say which level is next. " +
+  "A plan is not a report leg on its own: a BUY still needs the playbook's legs, and the CONFLICT OF INTEREST rule outranks it.");
+say();
+for (const [k, w] of Object.entries(CL_WATCHLIST)) {
+  const t = techOf.get(k) ?? null;
+  const hit = (l: (typeof w.levels)[number]) => (t ? (l.when === "above" ? t.last > l.price : t.last < l.price) : false);
+  say(`### ${k} — added ${w.added}`);
+  say(`- Live: ${t ? `${clp(t.last, 2)}, ${t.ma[200] ? pc(t.last / t.ma[200] - 1) : "—"} vs the MA200 (slope ${t.slope200 != null ? t.slope200.toFixed(2) + "%" : "—"})` : "unpriced"}.`);
+  say(`- Levels: ${w.levels.map((l) => `${l.label} ${l.when} ${clp(l.price, 0)}${hit(l) ? " **(now)**" : ""}`).join(" · ")}.`);
+  say(`- Plan: ${w.plan}`);
+  say(`- Source: ${w.source}`);
+  say();
+}
+
 // ── The corpus ───────────────────────────────────────────────────────────────
 
 const sections: [string, number, string][] = [
@@ -458,7 +475,7 @@ const sections: [string, number, string][] = [
   ...CL_TELEGRAM_CHATS.map((c): [string, number, string] => [
     c.group,
     telegramDays,
-    `${c.about} Telegram, imported from an export: it is only as fresh as the last export. The main analyst is not in it: nothing here is an ADD.`,
+    `${c.about} Telegram, synced live (or, without a session, from the last export: then only as fresh as that export). The main analyst is not in it: nothing here is an ADD.`,
   ]),
 ];
 for (const [group, days, about] of sections) {
@@ -489,7 +506,7 @@ for (const [group, days, about] of sections) {
 // Dividend notices over a year, for the names the book holds or watches: the
 // Telegram groups' forwarded material facts are the record of what each
 // company declared, which TradingView's yield only summarises.
-const watched = [...new Set([...held, ...ledger.map((a) => a.ticker), ...(opt("watch")?.split(",") ?? [])])];
+const watched = [...new Set([...held, ...ledger.map((a) => a.ticker), ...Object.keys(CL_WATCHLIST), ...extraWatch])];
 const names = new Map(watched.map((t) => {
   const p = statement.positions.find((x) => x.ticker === t);
   const word = (p?.company ?? "").replace(/^(ADMINISTRADORA DE FONDOS DE PENSIONES|EMPRESAS|EMBOTELLADORA|BANCO DE|VINA|ZONA FRANCA DE)\s+/i, "").split(/\s+/)[0];
@@ -614,7 +631,8 @@ for (const t of watched) {
   const tvLine = d ? `TradingView: P/E ${clp(d.pe, 2)}, P/B ${clp(d.pb, 2)}, ROE ${d.roe != null ? share(d.roe) : "—"}.` : "TradingView did not answer.";
   const cur = r?.statements ? (JSON.parse(readFileSync(join(CMF_DIR, r.statements), "utf8")) as CmfStatements) : null;
   if (!cur || !price) {
-    const why = CMF_ISSUER[t]?.bank ? "a bank: it files under the banking registry, outside the CMF's XBRL; its profit is not split here (provisions, " +
+    const why = cur && !price ? "statements synced but no price from TradingView or Yahoo, so no valuation"
+      : CMF_ISSUER[t]?.bank ? "a bank: it files under the banking registry, outside the CMF's XBRL; its profit is not split here (provisions, " +
         "indexation of the UF book and trading gains drive it — read its results release)"
       : r?.report ? "no XBRL at the CMF (the AFPs file their statements as PDF only; the return on the encaje, the reserve each AFP invests " +
         "alongside its funds, is the line that swings their profit — read it in the análisis razonado)"
