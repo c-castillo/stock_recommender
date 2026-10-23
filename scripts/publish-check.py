@@ -7,7 +7,8 @@
 Reads `.whatsapp/reports/<date>.{md,json,orders.json}`. The checks are the
 same every night, which is the point of having them in a script:
 
-  shape      every row has a ticker, BUY|SELL|HOLD, a numeric confidence and a reasoning
+  shape      every row has a ticker, BUY|SELL|HOLD, a numeric confidence and a reasoning;
+             a HOLD of a held ticker starts "HOLD N sh = $X — " (the phone page lists the book from it)
   prices     a BUY's or a held SELL's entry price is within 2% of the market
   amounts    shares × price matches the $ the order states, within 2%
   book       no sale for more shares than are held; buys fit in buying power;
@@ -15,8 +16,18 @@ same every night, which is the point of having them in a script:
   earnings   no BUY of a name whose results fall within three sessions, and no
              BUY of a company with no date checked at all
   risk       no BUY loses more than the risk budget between its entry and its stop
+  discipline no BUY of a leveraged crypto fund, no new stop more than 10% under
+             the entry, and every held long more than 10% under its cost is sold
+             (or trimmed, when the row says it is an ACTIVE or AGING ADD)
   orders     the orders file agrees with the rows, and a sale that must fill is
              priced to fill
+
+Options:
+  --waive=NOK,SMCI  the user chose to buy these into their results: their earnings
+                    failures become notes, and the run says so in the report
+  --reprice         re-price every must-fill sale 0.5% under the live price in the
+                    orders file, the rows and the report before checking (an
+                    intraday run, where prices move between writing and publishing)
 
 A failed check prints FAIL and nothing is published (exit code 1). `--publish`
 then backs up the live recommendations, replaces them, verifies the dashboard
@@ -30,12 +41,18 @@ import sys
 
 from marketdata import HEDGES, REPORTS, RISK_PER_POSITION, ROOT, api, load
 
+HELD_ROW = re.compile(r"^HOLD\s+[\d,.]+\s*sh\s*=\s*\$")
 MONEY = re.compile(r"\$\s*([\d,]+(?:\.\d+)?)")
-ORDER = re.compile(r"^(BUY|SELL)\s+([\d,.]+)\s*sh\s*[≈=~]\s*\$\s*([\d,]+(?:\.\d+)?)")
+# An order row may lead with "Not held — " (a buy of a new name); the order follows it.
+ORDER = re.compile(r"^(?:Not held\s*[—-]\s*)?(BUY|SELL)\s+([\d,.]+)\s*sh\s*[≈=~]\s*\$\s*([\d,]+(?:\.\d+)?)")
 ETFS = {"SMH", "SOXX", "SPY", "QQQ", "IGV", "GLD", "SLV", "TLT", "XLK", "XLC", "XLY", "XLF", "XLE", "XLI",
         "XLB", "XLU", "XLP", "XLV", "XLRE", "IBIT", "EWY", "UUP", "KORU", "RSP"}
 # A sale the rules require is priced under the last price so that it fills.
 MUST_FILL_DISCOUNT = 0.005
+# LOSS DISCIPLINE in the playbook: the most a long may lose from its cost.
+MAX_LOSS = 0.10
+# Leveraged funds on crypto or crypto proxies: never bought (the journal lost $22k on three).
+CRYPTO_LEVERAGED = {"UXRP", "XRPT", "XXRP", "ETHU", "ETHT", "SOLT", "SOLX", "BITX", "BITU", "MSTU", "MSTX", "CONL", "CONX"}
 
 
 def first_money(text):
@@ -43,7 +60,7 @@ def first_money(text):
     return float(m.group(1).replace(",", "")) if m else None
 
 
-def check_shape(recs):
+def check_shape(recs, held=()):
     bad = []
     if not recs:
         return ["no recommendations"]
@@ -57,6 +74,8 @@ def check_shape(recs):
             bad.append(f"{t}: confidence is not a number")
         if not isinstance(r.get("reasoning"), str) or not r["reasoning"].strip():
             bad.append(f"{t}: no reasoning")
+        elif r.get("action") == "HOLD" and t in held and not HELD_ROW.match(r["reasoning"]):
+            bad.append(f"{t}: a held HOLD row must start \"HOLD N sh = $X — \"")
     return bad
 
 
@@ -165,6 +184,37 @@ def check_risk(recs, total):
     return bad
 
 
+def check_discipline(recs, positions, prices, orders=()):
+    bad = []
+    cost = {p["ticker"]: p.get("avg_cost") for p in positions}
+    for o in orders:
+        c = cost.get(o["ticker"])
+        if o["side"] == "sell" and o.get("type") == "stop" and o.get("stopPrice") and c and o["ticker"] not in HEDGES \
+                and o["stopPrice"] < c * (1 - MAX_LOSS) - 0.01 and (prices.get(o["ticker"]) or 0) > c * (1 - MAX_LOSS):
+            bad.append(f"{o['ticker']}: the ${o['stopPrice']:,.2f} stop is under 90% of the ${c:,.2f} cost (${c * (1 - MAX_LOSS):,.2f})")
+    rows = order_rows(recs)
+    for r in recs:
+        m = ORDER.match(r.get("reasoning") or "")
+        if not m or m.group(1) != "BUY":
+            continue
+        if r["ticker"] in CRYPTO_LEVERAGED:
+            bad.append(f"{r['ticker']}: BUY of a leveraged crypto fund")
+        entry, stop = first_money(r.get("entryPrice")), first_money(r.get("stopLoss"))
+        if r["ticker"] not in HEDGES and entry and stop and stop < entry * (1 - MAX_LOSS) - 0.01:
+            bad.append(f"{r['ticker']}: stop ${stop:,.2f} is {100 * (1 - stop / entry):.1f}% under the entry; the cap is 10%")
+    sold = {t for t, side, _, _ in rows if side == "SELL"}
+    reason = {r["ticker"]: r.get("reasoning") or "" for r in recs}
+    for p in positions:
+        t, cost = p["ticker"], p.get("avg_cost")
+        px = prices.get(t) or p.get("current_price")
+        if t in HEDGES or not cost or not px or px >= cost * (1 - MAX_LOSS) or t in sold:
+            continue
+        if re.search(r"\b(ACTIVE|AGING) ADD\b", reason.get(t, "")):
+            continue
+        bad.append(f"{t}: {100 * (px / cost - 1):.1f}% from its ${cost:,.2f} cost with no SELL row (LOSS DISCIPLINE)")
+    return bad
+
+
 def check_orders(recs, orders, held, prices):
     bad = []
     rows = {(t, side.lower()): s for t, side, s, _ in order_rows(recs)}
@@ -192,6 +242,38 @@ def check_orders(recs, orders, held, prices):
     return bad
 
 
+def reprice(date, data, orders):
+    """Move every must-fill sale to 0.5% under the live price, in the orders file,
+    the row's reasoning and the report, and save all three. Returns what moved."""
+    sales = [o for o in orders if o.get("mustFill") and o["side"] == "sell" and o.get("limitPrice")]
+    if not sales:
+        return []
+    prices = api("/api/prices?tickers=" + ",".join(sorted({o["ticker"] for o in sales}))).get("prices", {})
+    md_path = os.path.join(REPORTS, f"{date}.md")
+    md = open(md_path).read()
+    moved = []
+    for o in sales:
+        px = prices.get(o["ticker"])
+        if not px:
+            continue
+        new = int(px * (1 - MUST_FILL_DISCOUNT) * 100) / 100
+        old = o["limitPrice"]
+        if old <= px * (1 - MUST_FILL_DISCOUNT / 2):
+            continue  # already under the market: leave it as written
+        o["limitPrice"] = new
+        before, after = f"limit ${old:,.2f}", f"limit ${new:,.2f}"
+        for r in data["recommendations"]:
+            if r["ticker"] == o["ticker"]:
+                r["reasoning"] = r["reasoning"].replace(before, after)
+        md = md.replace(before, after)
+        moved.append(f"{o['ticker']}: must-fill limit ${old:,.2f} → ${new:,.2f} (live ${px:,.2f})")
+    if moved:
+        json.dump(data, open(os.path.join(REPORTS, f"{date}.json"), "w"), ensure_ascii=False, indent=1)
+        json.dump({"orders": orders}, open(os.path.join(REPORTS, f"{date}.orders.json"), "w"), ensure_ascii=False, indent=1)
+        open(md_path, "w").write(md)
+    return moved
+
+
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     date = args[0] if args else dt.date.today().isoformat()
@@ -207,7 +289,11 @@ def main():
     power = book.get("buying_power") if book.get("buying_power") is not None else book.get("cash_balance")
     total = sum(p.get("market_value") or 0 for p in book.get("positions", [])) + (book.get("cash_balance") or 0)
 
-    shape = check_shape(recs)
+    if "--reprice" in sys.argv:
+        for line in reprice(date, data, orders):
+            print(f"     {line}")
+
+    shape = check_shape(recs, held)
     results = [("shape", shape)]
     if not shape:
         tickers = sorted({r["ticker"] for r in recs if r["action"] != "HOLD"} | set(held))
@@ -223,12 +309,16 @@ def main():
             except Exception:
                 calendar = None
         earn, notes = check_earnings([r for r in recs if r["ticker"] not in ETFS | HEDGES], held, calendar, dt.date.today())
+        waived = {t.strip().upper() for a in sys.argv if a.startswith("--waive=") for t in a[8:].split(",") if t.strip()}
+        notes += [f"WAIVED by the user: {b}" for b in earn if b.split(":")[0] in waived]
+        earn = [b for b in earn if b.split(":")[0] not in waived]
         results += [
             ("prices", check_prices(recs, held, prices)),
             ("amounts", check_amounts(recs)),
             ("book", check_book(recs, held, power)),
             ("earnings", earn),
             ("risk", check_risk(recs, total)),
+            ("discipline", check_discipline(recs, book.get("positions", []), prices, orders)),
             ("orders", check_orders(recs, orders, held, prices)),
         ]
     else:

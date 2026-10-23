@@ -5,7 +5,7 @@
 
 Prints, per ticker, from two years of Yahoo bars: the 21/55/144/200-day
 averages with their direction, rate-of-change momentum on three horizons, the
-weekly swing pivots and the last ten weekly bars (each dated by its Monday). It does not interpret
+14-day average true range, the weekly swing pivots and the last ten weekly bars (each dated by its Monday). It does not interpret
 anything: the trend, the anchors and the Fibonacci levels are read off this
 output with the technical-analysis and fibonacci-charts skills.
 """
@@ -88,6 +88,10 @@ def read(ticker):
         for r in w[-10:]
     ]
     print("  last 10 weeks, by their Monday, H/L/C: " + " | ".join(weeks))
+    # The room a stop needs (the playbook's ROOM FOR THE NOISE): 14-day average true range.
+    tr = [max(d[j][1], d[j - 1][3]) - min(d[j][2], d[j - 1][3]) for j in range(len(d) - 14, len(d))]
+    atr = sum(tr) / 14
+    print(f"  ATR14 {atr:.2f} ({100 * atr / c[-1]:.1f}% of the close) · close − 2 ATR {c[-1] - 2 * atr:.2f}")
     top = max(d, key=lambda r: r[1])
     print(f"  2y high {top[1]:.2f} on {top[0]} · low since {min(r[2] for r in d if r[0] >= top[0]):.2f}")
 

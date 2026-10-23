@@ -19,6 +19,7 @@ import json
 import os
 import re
 import sys
+from zoneinfo import ZoneInfo
 
 from marketdata import COMMISSION_PC, HEDGES, REPORTS, api, load, report_files
 
@@ -39,15 +40,17 @@ def level(o):
 def find(order, broker, since):
     """The broker order that is this report order, or None.
 
-    Same ticker, side and kind (a stop or an entry), sent on or after the day
-    of the report. A stop that already rested at the same level and size
+    Same ticker, side and kind (a stop or an entry), sent after the report's
+    run started (`since`: an ISO time in UTC, or a bare date when the run
+    record is missing). A run written after the close must not claim that
+    day's earlier fills as its own. A stop that already rested at the same level and size
     before the report counts too: the report asked for what was there.
     """
     same = [
         b for b in broker
         if b["ticker"] == order["ticker"] and b["side"] == order["side"] and family(b["type"]) == family(order["type"])
     ]
-    sent = [b for b in same if b["createdAt"][:10] >= since]
+    sent = [b for b in same if b["createdAt"] >= since]
     if family(order["type"]) == "stop":
         want = level(order)
         sent += [
@@ -137,6 +140,17 @@ def broker_checks(open_orders, positions):
     return notes
 
 
+def written_at(date):
+    """When the report's run started, in UTC ("2026-10-22T02:05:00Z"), from
+    its run record; the bare date when there is none."""
+    run = load(os.path.join(REPORTS, f"{date}.run.json"), {}) or {}
+    try:
+        ny = dt.datetime.strptime(run["startedNY"], "%Y-%m-%d %H:%M").replace(tzinfo=ZoneInfo("America/New_York"))
+        return ny.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except (KeyError, ValueError):
+        return date
+
+
 def main():
     today = dt.date.today().isoformat()
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
@@ -164,7 +178,8 @@ def main():
     else:
         tickers = sorted({o["ticker"] for o in orders})
         prices = api("/api/prices?tickers=" + ",".join(tickers)).get("prices", {})
-        pairs = [status(o, everything, date) for o in orders]
+        since = written_at(date)
+        pairs = [status(o, everything, since) for o in orders]
         states = [s for s, _ in pairs]
         print("Order|Asked|At the broker|Price now|Cost of waiting|Next")
         print("---|---|---|---|---|---")

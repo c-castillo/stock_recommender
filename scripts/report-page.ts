@@ -45,8 +45,9 @@ const recs: Rec[] = JSON.parse(readFileSync(join(DIR, `${date}.json`), "utf8")).
 // ── The actionable part, from the JSON ────────────────────────────────────────
 
 // /daily-run makes every order row's reasoning start with the order itself
-// ("BUY 67 sh ≈ $701 — …") and every held row with "HOLD 16 sh = $6,814.88 — …".
-const SIZED = /^(BUY|SELL|HOLD)\s+([\d,.]+)\s*sh\s*[=≈]\s*\$([\d,.]+)\s*(?:—|-)?\s*/;
+// ("BUY 67 sh ≈ $701 — …", after "Not held — " for a new name) and every held
+// row with "HOLD 16 sh = $6,814.88 — …".
+const SIZED = /^(?:Not held\s*[—-]\s*)?(BUY|SELL|HOLD)\s+([\d,.]+)\s*sh\s*[=≈]\s*\$([\d,.]+)\s*(?:—|-)?\s*/;
 
 const sized = recs.flatMap((r) => {
   const m = SIZED.exec(r.reasoning);

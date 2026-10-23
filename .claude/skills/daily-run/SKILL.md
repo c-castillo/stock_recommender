@@ -192,7 +192,10 @@ TODAY, DEPTH, PREV and `N` (`fullDetailDays`).
 >    - Stops: one row per held long with the report's stop, what rests at Zesty
 >      (from the bundle's "Orders at the broker" block) and the exact order to
 >      place when nothing rests or it no longer matches. A trailing level comes
->      from the bundle's "Highest close since entry" table.
+>      from the bundle's "Highest close since entry" table. Give each resting
+>      stop's distance in ATRs from the scorecard's "Volatility and stops"
+>      table, and resolve every row of its "WHIPSAW watch" (re-enter per the
+>      playbook's THE WHIPSAW, or why not).
 >    - ADDs not held: one line each, a sized BUY or its single blocker, with the
 >      swap when the blocker is a cap.
 >    - The benchmark row (SMH) while the book trails it on 6M and YTD.
@@ -206,14 +209,18 @@ TODAY, DEPTH, PREV and `N` (`fullDetailDays`).
 >    - Risk: for every BUY, the $ lost at its stop and that as a % of the book,
 >      against the 0.75% budget; held names over twice the budget.
 >    - Scorecard: two lines on what it shows, and what you changed because of
->      it. On a WEEKLY run, the rule review in three lines and at most one
+>      it. One more line from its trade journal: payoff and profit factor for
+>      the report's trades and the user's (not the win rate), with "small
+>      sample" under 30 closed trades. On a WEEKLY run, the rule review in three lines and at most one
 >      "Proposed rule change:".
 >    - Winners vs losers: the share of the book in positions losing money vs
 >      making it, and whether the largest weights are the best or worst trends
 >      (Chartizard rule 2).
 >    - Rule breaches: holdings below a falling MA200 (rule 7), ledger ADDs that
->      are EXPIRED, INVALIDATED or flagged ⚠, and sectors above their cap
->      without a trim.
+>      are EXPIRED, INVALIDATED or flagged ⚠, sectors above their cap
+>      without a trim, and every row of the scorecard's "Open positions
+>      against LOSS DISCIPLINE" table (past the 10% loss cap or the 20-session
+>      time stop) with the order that cures it.
 >    - Change since the last report (the 🩺 and 💡 sections of PREV, and the
 >      Zesty diff above): what was traded, and whether the last session's
 >      recommendations were followed.
@@ -223,8 +230,8 @@ TODAY, DEPTH, PREV and `N` (`fullDetailDays`).
 > 5. **Order size.** An order worth less than 1% of the book's total value is
 >    not a fix: report the breach it would cure as "within tolerance" with the
 >    $ amount, and don't list the order. Exceptions: an order that closes a
->    position, or one triggered by a stop, an invalidation level or a main-analyst
->    SELL. Placing or moving a resting stop is not an order row at all: it goes
+>    position, or one triggered by a stop, an invalidation level, a main-analyst
+>    SELL, the 10% loss cap or the time stop (the playbook's LOSS DISCIPLINE). Placing or moving a resting stop is not an order row at all: it goes
 >    in the Stops table.
 > 6. Save the report to `.whatsapp/reports/TODAY.md`, before any optional check.
 > 7. Save the recommendations to `.whatsapp/reports/TODAY.json` as
@@ -236,7 +243,9 @@ TODAY, DEPTH, PREV and `N` (`fullDetailDays`).
 >    rationale with its dated evidence), `mentions` (corpus mentions this
 >    session), `sources` (short dated source labels). Rows that are orders come
 >    first and their `reasoning` starts with the order itself ("BUY 67 sh ≈
->    $701 — …"); a row for a ticker that is not held starts with "Not held — ".
+>    $701 — …"); a row for a held ticker that is not an order starts "HOLD 16
+>    sh = $6,814.88 — "; any other row for a ticker that is not held starts
+>    with "Not held — ".
 >    `entryPrice` starts with the live price as a plain `$` number.
 > 8. Save the orders this report asks for to `.whatsapp/reports/TODAY.orders.json`
 >    as `{"orders": [...]}`: every order row of the 💡 section and every
@@ -269,9 +278,18 @@ The checks, the same every day: the shape of every row; each BUY's and held
 SELL's entry price within 2% of the market; shares × price against the stated
 $; no sale for more shares than are held and buys that fit in buying power;
 every held ticker has a row; no new position opened within three sessions of
-its own results; no BUY that loses more than the risk budget at its stop; the
-orders file agrees with the order rows, and a must-fill sale is priced under
+its own results; no BUY that loses more than the risk budget at its stop; no
+BUY of a leveraged crypto fund, no new stop more than 10% under its entry, and
+every held long more than 10% under its cost sold (or, for an ACTIVE or AGING
+ADD, trimmed); the orders file agrees with the order rows, and a must-fill sale is priced under
 the market.
+
+Two options, for what is the user's call or a moving market rather than a
+slip: `--waive=NOK` when the user has chosen to buy a name into its results
+(its earnings failure becomes a "WAIVED by the user" note; say so at the top of
+the report), and `--reprice` on a run written while the market is open, which
+moves every must-fill sale to 0.5% under the live price in the orders file, the
+rows and the report before checking.
 
 Run it without `--publish` first. On `FAIL`, fix what is a slip of shape or
 arithmetic in the JSON yourself and run it again; anything else (a price that

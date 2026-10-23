@@ -77,7 +77,7 @@ function build(): { title: string; blocks: Block[] } {
   for (const p of listPortfolio()) if (p.current_price != null) prices[p.ticker] = p.current_price;
   const closed = orders?.closed ?? [];
   const { trades, unmatchedSells } = buildJournal([...closed, ...legFillOrders(closed)], loadReportAsks(), getTradeOrigins(), prices);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Date().toLocaleDateString("en-CA");
   const first = trades.at(-1)?.entryDate ?? today;
   const agent = trades.filter((t) => t.origin === "agent");
   const user = trades.filter((t) => t.origin === "user");
@@ -185,7 +185,7 @@ function toHtml(title: string, blocks: Block[]): string {
 async function main() {
   const { title, blocks } = build();
   const dir = path.join(process.cwd(), ".whatsapp", "reports");
-  const base = path.join(dir, `bitacora-${new Date().toISOString().slice(0, 10)}`);
+  const base = path.join(dir, `bitacora-${new Date().toLocaleDateString("en-CA")}`);
   fs.writeFileSync(`${base}.md`, toMarkdown(title, blocks));
   console.log(`${base}.md`);
   if (process.argv.includes("--no-pdf")) return;

@@ -272,6 +272,19 @@ def main():
     res = run("scorecard.py", *(["--review"] if level == "WEEKLY" else []), to=OUT("scorecard.md"))
     if res.returncode != 0:
         missing.append(f"scorecard ({(res.stderr or res.stdout).strip()[-120:]})")
+    else:
+        # The journal's payoff and profit factor, and the open positions past the loss cap or the time stop.
+        res = subprocess.run(["pnpm", "exec", "tsx", "scripts/journal-stats.ts"], capture_output=True, text=True, cwd=ROOT)
+        if res.returncode == 0:
+            open(OUT("scorecard.md"), "a").write(res.stdout)
+        else:
+            missing.append(f"trade journal ({(res.stderr or res.stdout).strip()[-120:]})")
+        # Each stop's room in ATRs, and the stop-outs of the last five sessions.
+        res = run("volatility.py")
+        if res.returncode == 0:
+            open(OUT("scorecard.md"), "a").write(res.stdout)
+        else:
+            missing.append(f"volatility ({(res.stderr or res.stdout).strip()[-120:]})")
     tickers = event_tickers(z["book"])
     res = run("events.py", *tickers, to=OUT("events.md"))
     if res.returncode != 0:
