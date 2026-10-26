@@ -230,6 +230,16 @@ def check_orders(recs, orders, held, prices):
             bad.append(f"{key[1].upper()} {key[0]} is in the orders file but is not an order row of the report")
     sells = {}
     for o in orders:
+        # Every order goes to Zesty through the connector, which has no buy-stop
+        # and no way to hold a condition watched at the open.
+        if o["side"] == "buy" and o.get("type") != "limit":
+            bad.append(f"{o['ticker']}: a {o.get('type')} buy cannot be placed through the connector; "
+                       f"wait for a close above the level and issue a limit (the playbook's EVERY ORDER IS ONE THE AGENT CAN PLACE)")
+        if o["side"] == "sell" and o.get("type") not in ("limit", "stop", "trailing_stop"):
+            bad.append(f"{o['ticker']}: a {o.get('type')} sale cannot be placed through the connector")
+        if re.search(r"by hand|in the Zesty app|\bopens? (under|over|above|below)|do not chase", o.get("condition") or "", re.I):
+            bad.append(f"{o['ticker']}: the condition \"{o['condition']}\" needs someone to watch or place it; "
+                       f"make it a standing conditional instead")
         if o["side"] == "sell":
             sells.setdefault(o["ticker"], []).append(o)
         px = prices.get(o["ticker"])

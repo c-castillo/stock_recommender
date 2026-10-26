@@ -250,7 +250,8 @@ TODAY, DEPTH, PREV and `N` (`fullDetailDays`).
 > 8. Save the orders this report asks for to `.whatsapp/reports/TODAY.orders.json`
 >    as `{"orders": [...]}`: every order row of the 💡 section and every
 >    "To place" cell of the Stops table, in the order they should be sent, each
->    with `ticker`, `side` (buy|sell), `type` (limit|stop|trailing_stop), `qty`
+>    with `ticker`, `side` (buy|sell), `type` (limit|stop|trailing_stop; a buy
+>    is always a limit: there is no buy-stop), `qty`
 >    (whole shares), `limitPrice` or `stopPrice` or `trailPercent` (numbers),
 >    `timeInForce` (day|gtc), `source` ("order" or "stop"), `stopTriggered`
 >    (true when a fired stop or an invalidation is the reason for the sale),
@@ -259,8 +260,10 @@ TODAY, DEPTH, PREV and `N` (`fullDetailDays`).
 >    PRICED), `attachStop` (for a BUY that opens a new position: the stop
 >    level, a number, sent with the buy, and that position then has no
 >    separate stop entry; null otherwise),
->    `condition` (anything the broker cannot enforce, such as "do not buy if it
->    opens under $113.40", or null), `waitsFor` (the order that must fill first,
+>    `condition` (what a later run does from a close, such as "cancel if
+>    unfilled by the 29-10 close", or null; never something to watch at the
+>    open or to do by hand: per the playbook's EVERY ORDER IS ONE THE AGENT CAN
+>    PLACE, such a name is a standing conditional, not an order), `waitsFor` (the order that must fill first,
 >    such as "BUY 10 EBAY", or null) and `why` (one line). An empty list when
 >    the report asks for nothing.
 > 9. Return: the depth, the chart skills you loaded (or "none"), both paths,
@@ -410,9 +413,13 @@ enough; POST `/api/portfolio/sync-zesty`) so the open orders are current.
    the portfolio or rewrite the report: tomorrow's run picks the fills up from
    the snapshot of step 5.
 
-A condition such as "do not buy if it opens under $113.40" cannot rest at the
-broker. Say it next to the order in the table, so the user can decline it and
-send it by hand at the open instead.
+Every order is placed from here, never by hand. An order the connector
+cannot preview (a buy-stop, an order type it lacks) is a slip of the report:
+the publish check fails it, and one that still reaches this step is reported
+as "not placeable" and left for the next run to re-issue as a limit. A
+`condition` is what a later run does from a close (cancel unfilled, cancel
+on a close under a level): say it next to the order in the table, and do it
+at the run that sees it, with its own approval.
 
 ## Report back
 

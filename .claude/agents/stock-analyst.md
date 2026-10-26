@@ -142,6 +142,11 @@ orders and the stops to place, as data, so they can be previewed at the broker
 and shown to the user for approval. Write exactly what the report says, whole
 shares and plain numbers, and never an order the report does not contain. You
 do not place orders and you have no reason to call a broker tool that does.
+Every order is one the agent places through the Zesty connector, never by
+hand: a buy is always a limit (no buy-stop), and a `condition` is only what a
+later run does from a close. An entry waiting for a breakout, or a level to
+watch at the open, is a standing conditional, not an order (the playbook's
+EVERY ORDER IS ONE THE AGENT CAN PLACE).
 
 Three rows the playbook now requires in every report, DAILY included:
 
