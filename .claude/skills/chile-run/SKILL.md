@@ -60,10 +60,11 @@ python3 scripts/cl/preflight.py            # add `weekly` to force the review, `
 ```
 
 It reads a new statement, syncs the IPSA group alone (one reconnect, a
-backfill on a gap), syncs the Telegram sources — Dividendos Chile and
-Hablemos de Chile — live as the user's account
-(`scripts/cl/telegram-sync.mts`; only those two chats, never DMs, never
-sends); with no valid session it says so and falls back to the newest
+backfill on a gap), syncs the Telegram sources (`CL_TELEGRAM_CHATS`: Dividendos Chile, Zesty
+Chile, Zesty Comunidad, Independencia Financiera, Análisis Técnico CHILE -
+USA) live as the user's account (`scripts/cl/telegram-sync.mts`; only those
+chats, never DMs, never sends; Hablemos de Chile is history only, since the
+user is no longer in it); with no valid session it says so and falls back to the newest
 `~/Downloads/Telegram Desktop/ChatExport_*` of each, matched by chat name (the
 user logs in again with `scripts/cl/telegram-login.mts`; not a stop),
 syncs each held and ADD name's CMF filings from cmfchile.cl (`scripts/cl/cmf.mts sync`: the year's material facts with their

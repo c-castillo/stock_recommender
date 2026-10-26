@@ -163,12 +163,12 @@ def whatsapp(sync, backfill):
 
 
 def telegram():
-    say("\n## 3. Telegram (Dividendos Chile, Hablemos de Chile)")
+    say("\n## 3. Telegram (the Chilean sources)")
     res = tsx("scripts/cl/telegram-sync.mts")
     source = "sync"
     if res.returncode != 0:
         why = {3: "no valid session (log in with scripts/cl/telegram-login.mts)",
-               2: "neither chat is among the account's chats"}.get(res.returncode, (res.stderr or res.stdout).strip()[-300:])
+               2: "no known chat is among the account's chats"}.get(res.returncode, (res.stderr or res.stdout).strip()[-300:])
         say(f"⚠ The Telegram sync did not run: {why}. Falling back to the newest exports.")
         res = tsx("scripts/cl/telegram.ts")
         source = "export"

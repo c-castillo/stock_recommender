@@ -25,7 +25,7 @@ export const CMF_INDEX = join(CMF_DIR, "index.json");
  *  filed under: banks are in the banking registry, every other issuer in the
  *  securities one. Taken from the CMF's issuer lists on 2026-10-20. A ticker
  *  missing here is reported as "no CMF id", never guessed. */
-export const CMF_ISSUER: Record<string, { rut: string; bank?: true }> = {
+export const CMF_ISSUER: Record<string, { rut: string; bank?: true; afp?: true }> = {
   "AGUAS-A": { rut: "61808000" }, IAM: { rut: "77274820" },
   "ANDINA-B": { rut: "91144000" },
   CAP: { rut: "91297000" },
@@ -60,7 +60,8 @@ export const CMF_ISSUER: Record<string, { rut: string; bank?: true }> = {
   "SQM-A": { rut: "93007000" }, "SQM-B": { rut: "93007000" },
   VAPORES: { rut: "90160000" },
   ZOFRI: { rut: "70285500" },
-  HABITAT: { rut: "98000100" }, PROVIDA: { rut: "76265736" }, CUPRUM: { rut: "76240079" }, PLANVITAL: { rut: "98001200" },
+  HABITAT: { rut: "98000100", afp: true }, PROVIDA: { rut: "76265736", afp: true },
+  CUPRUM: { rut: "76240079", afp: true }, PLANVITAL: { rut: "98001200", afp: true },
   CHILE: { rut: "97004000", bank: true }, BCI: { rut: "97006000", bank: true },
   ITAUCL: { rut: "97023000", bank: true }, BSANTANDER: { rut: "97036000", bank: true },
 };

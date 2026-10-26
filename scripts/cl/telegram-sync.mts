@@ -1,7 +1,6 @@
 /**
- * Sync the Chilean book's Telegram sources (CL_TELEGRAM_CHATS: Dividendos
- * Chile, Hablemos de Chile) straight from Telegram, as the user's account —
- * no export needed.
+ * Sync the Chilean book's Telegram sources (CL_TELEGRAM_CHATS) straight from
+ * Telegram, as the user's account — no export needed.
  *
  *   pnpm exec tsx scripts/cl/telegram-sync.mts [--days 30] [--media-days 30]
  *
@@ -10,11 +9,12 @@
  * `--days` back when nothing is stored, or always with `--backfill`). Ids are
  * Telegram's own message ids, the ones the export carries too, so rows
  * imported from an export and rows synced here are the same rows. Photos and
- * PDFs of the last `--media-days` are downloaded to `.whatsapp/media/<jid>/`.
+ * PDFs of the last `--media-days` are downloaded to `.whatsapp/media/<jid>/`,
+ * except for a chat set to `media: false`, which keeps only its text.
  *
- * Read-only: it never sends, and reads only the two known chats (no DMs).
+ * Read-only: it never sends, and reads only the known chats (no DMs).
  * Exit 3 when there is no session (run scripts/cl/telegram-login.mts), 2 when
- * neither chat is in the account's dialogs.
+ * no known chat is in the account's dialogs.
  */
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -79,7 +79,7 @@ async function syncChat(client: ReturnType<typeof makeClient>, entity: Api.TypeE
     if (text) parts.push(text);
 
     let media: Pick<MessageRow, "media_type" | "media_mime" | "media_filename" | "media_path"> = {};
-    const recent = msg.date >= now - MEDIA_DAYS * 86400;
+    const recent = chat.media !== false && msg.date >= now - MEDIA_DAYS * 86400;
     if (msg.photo) {
       const file = `${msg.id}.jpg`;
       const path = join(mediaDir, file);

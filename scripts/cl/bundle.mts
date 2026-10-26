@@ -474,7 +474,7 @@ const sections: [string, number, string][] = [
   [CL_GROUP, windowDays, "The main analyst's group. Sparse: a quiet week is normal and is not a stale sync. Senders are opaque ids except the main analyst."],
   ...CL_TELEGRAM_CHATS.map((c): [string, number, string] => [
     c.group,
-    telegramDays,
+    c.days ?? telegramDays,
     `${c.about} Telegram, synced live (or, without a session, from the last export: then only as fresh as that export). The main analyst is not in it: nothing here is an ADD.`,
   ]),
 ];
@@ -634,8 +634,12 @@ for (const t of watched) {
     const why = cur && !price ? "statements synced but no price from TradingView or Yahoo, so no valuation"
       : CMF_ISSUER[t]?.bank ? "a bank: it files under the banking registry, outside the CMF's XBRL; its profit is not split here (provisions, " +
         "indexation of the UF book and trading gains drive it — read its results release)"
-      : r?.report ? "no XBRL at the CMF (the AFPs file their statements as PDF only; the return on the encaje, the reserve each AFP invests " +
+      : r?.report && CMF_ISSUER[t]?.afp ? "no XBRL at the CMF (the AFPs file their statements as PDF only; the return on the encaje, the reserve each AFP invests " +
         "alongside its funds, is the line that swings their profit — read it in the análisis razonado)"
+      // The XBRL often reaches the CMF days after the PDF: the results are out, only the split is missing.
+      : r?.report?.text ? `the ${r.report.period} statements are filed but their XBRL is not at the CMF yet, so the profit is not split here — ` +
+        `read the business line, the one-offs and the debt in the análisis razonado, ${join(CMF_DIR, r.report.text)}, before calling the results unreadable`
+      : r?.report ? `the ${r.report.period} statements are filed with no XBRL and no análisis razonado at the CMF`
       : "not synced";
     say(`#### ${t} — ${why}.`);
     say(tvLine);

@@ -1,6 +1,6 @@
 /**
  * Import Telegram Desktop HTML exports of the Chilean book's Telegram sources
- * (CL_TELEGRAM_CHATS: Dividendos Chile, Hablemos de Chile) into the corpus.
+ * (CL_TELEGRAM_CHATS) into the corpus.
  *
  *   pnpm exec tsx scripts/cl/telegram.ts [<ChatExport folder>]
  *

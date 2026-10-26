@@ -13,17 +13,22 @@ import { join } from "node:path";
  *  pinned groups, so its messages never reach the US report. */
 export const CL_GROUP = "IPSA & SCL 🇨🇱 Dr Market";
 
-/** The Telegram sources, imported from Telegram Desktop exports
- *  (scripts/cl/telegram.ts) under pseudo-jids that are never selected for the
- *  US analysis. `chat` is the name an export's header must carry to be
- *  imported as that group: Telegram numbers messages per chat, so another
- *  chat under the same jid would overwrite rows. The main analyst is in
- *  neither: no ADD comes from them. */
+/** The Telegram sources, synced live as the user's account
+ *  (scripts/cl/telegram-sync.mts) or imported from Telegram Desktop exports
+ *  (scripts/cl/telegram.ts), under pseudo-jids that are never selected for the
+ *  US analysis. `chat` is the chat's title exactly as Telegram shows it (and
+ *  as an export's header carries it): Telegram numbers messages per chat, so
+ *  another chat under the same jid would overwrite rows. `media: false` keeps
+ *  a busy discussion group to its text, so its photos never reach the
+ *  digester; `days` shortens the bundle's window for a high-volume chat. The
+ *  main analyst is in none of them: no ADD comes from them. */
 export interface ClTelegramChat {
   chat: string;
   jid: string;
   group: string;
   about: string;
+  media?: false;
+  days?: number;
 }
 export const CL_TELEGRAM_CHATS: ClTelegramChat[] = [
   {
@@ -39,6 +44,38 @@ export const CL_TELEGRAM_CHATS: ClTelegramChat[] = [
     jid: "tg:hablemos-de-chile",
     group: "Hablemos de Chile (Telegram)",
     about: "A general Chilean-market chat: members' views on Chilean stocks, the economy and politics. Opinions are chat; forwarded notices and data are dated facts.",
+  },
+  {
+    chat: "Análisis Técnico CHILE - USA🇨🇱 🇺🇸",
+    jid: "tg:analisis-tecnico-chile-usa",
+    group: "Análisis Técnico CHILE - USA (Telegram)",
+    about:
+      "A broadcast channel of chart analyses and reports on Chilean and US names. Its Chilean charts are a third party's technical read, " +
+      "weighed like a member's; its US posts are macro at most for this book. It announced its closing on 2026-10-24.",
+    media: false,
+    // Some 60 market-wrap posts a day, mostly US data: a week is plenty.
+    days: 7,
+  },
+  {
+    chat: "Zesty Chile 🇨🇱⚡️",
+    jid: "tg:zesty-chile",
+    group: "Zesty Chile (Telegram)",
+    about: "A large discussion group of Zesty users on Chilean stocks: members' views, results and dividend chatter. Opinions are chat; forwarded notices and data are dated facts.",
+    media: false,
+  },
+  {
+    chat: "Independencia Financiera 📊",
+    jid: "tg:independencia-financiera",
+    group: "Independencia Financiera (Telegram)",
+    about: "A long-term and dividend investing discussion group. Opinions are chat; forwarded notices and data are dated facts.",
+    media: false,
+  },
+  {
+    chat: "Zesty - Comunidad",
+    jid: "tg:zesty-comunidad",
+    group: "Zesty Comunidad (Telegram)",
+    about: "Zesty's own community group: users discuss Chilean and US stocks, and the broker posts announcements. Opinions are chat; forwarded notices and data are dated facts.",
+    media: false,
   },
 ];
 /** The dividends chat, which the bundle's per-name dividend history reads. */

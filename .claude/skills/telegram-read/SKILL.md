@@ -1,11 +1,11 @@
 ---
 name: telegram-read
-description: Read the Chilean book's Telegram sources — Dividendos Chile and Hablemos de Chile — outside a /chile-run. Syncs them live from Telegram as the user's account (no export), then reads the last days or searches them. Use when asked what the Telegram groups said, for the dividends with a record date this week, or what Dividendos Chile / Hablemos de Chile posted about a Chilean ticker. Read-only; nothing is published or traded.
+description: Read the Chilean book's Telegram sources — Dividendos Chile, Zesty Chile, Zesty Comunidad, Independencia Financiera, Análisis Técnico CHILE - USA and the stored Hablemos de Chile — outside a /chile-run. Syncs them live from Telegram as the user's account (no export), then reads the last days or searches them. Use when asked what the Telegram groups said, for the dividends with a record date this week, or what one of those groups posted about a Chilean ticker. Read-only; nothing is published or traded.
 ---
 
 # Telegram read: sync → read or search
 
-The two Telegram chats are Chilean-book sources (`CL_TELEGRAM_CHATS` in
+The Telegram chats are Chilean-book sources (`CL_TELEGRAM_CHATS` in
 `lib/cl/config.ts`), stored under `tg:` pseudo-jids the US analysis never
 reads. No agents, no API credits, no MCP tools — the
 `mcp__stock-recommender__*` tools see only the US groups.
