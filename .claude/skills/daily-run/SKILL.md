@@ -22,7 +22,7 @@ through the two agents in step 4. Don't call `/api/analyze` or
 `scripts/sweep-relevance.ts` from here — those bill the Anthropic API key.
 
 **When it runs.** Once a day **before the US open** (09:30 New York), scheduled
-at 08:30 local time from Monday to Saturday by
+at 10:45 Chile time from Monday to Saturday by
 `scripts/schedule/com.stock-recommender.daily-run.plist`. The report is written
 on the closes of the session that ended the evening before, with the night's
 news and the pre-market prints beside them, and its orders are for the open

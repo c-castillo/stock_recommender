@@ -113,8 +113,15 @@ if ! mkdir "$LOCK" 2>/dev/null; then
 fi
 trap 'rmdir "$LOCK" 2>/dev/null' EXIT
 
+# Keep the Mac awake from the first second, the dashboard's start included.
+# launchd may start this in a dark wake (the Mac asleep at 10:45 runs the job on
+# its next maintenance wake), where `caffeinate -i` alone does not hold: -u turns
+# it into a full wake, -s holds system sleep off on AC power, -i on battery.
+caffeinate -u -t 10 &
+caffeinate -ims -w $$ &
+
 {
-  echo "=== $(date '+%F %T %Z') scheduled run"
+  echo "=== $(date '+%F %T %Z') scheduled run ($(pmset -g ps | head -1 | sed "s/.*'\(.*\)'.*/\1/"))"
   # Yesterday's session has been read or it never will be.
   [[ -f "$LOGS/last-session" ]] && claude rm "$(cat "$LOGS/last-session")" > /dev/null 2>&1
   if ! curl -sf -m 10 localhost:3000/api/whatsapp/status > /dev/null; then
@@ -127,8 +134,6 @@ trap 'rmdir "$LOCK" 2>/dev/null' EXIT
     # The WhatsApp client needs a moment after the server answers.
     sleep 30
   fi
-  # caffeinate keeps the Mac awake while this script waits on the session.
-  caffeinate -i -w $$ &
   run_session "Read .claude/skills/daily-run/SKILL.md and follow it as \`/daily-run unattended\`: steps 0 to 6, no question to the user, no order placed, and a PushNotification at the end." 7200
   CODE=$?
   echo "=== $(date '+%F %T %Z') finished with exit code $CODE"
