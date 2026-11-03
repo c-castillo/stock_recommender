@@ -46,6 +46,50 @@ function summarize(trades: JournalTrade[]) {
   };
 }
 
+/** Payoff and profit factor over win rate: the journal's losers are bigger than its winners. */
+function edge(closed: JournalTrade[]) {
+  const wins = closed.filter((t) => t.realizedPl > 0);
+  const losses = closed.filter((t) => t.realizedPl < 0);
+  const gw = wins.reduce((s, t) => s + t.realizedPl, 0);
+  const gl = -losses.reduce((s, t) => s + t.realizedPl, 0);
+  return {
+    closed: closed.length,
+    realized: gw - gl,
+    winRate: closed.length ? (wins.length / closed.length) * 100 : null,
+    payoff: wins.length && losses.length ? gw / wins.length / (gl / losses.length) : null,
+    profitFactor: gl ? gw / gl : null,
+    expectancy: closed.length ? (gw - gl) / closed.length : null,
+    commissions: closed.reduce((s, t) => s + t.commissions, 0),
+    days: closed.length ? closed.reduce((s, t) => s + t.holdingDays, 0) / closed.length : null,
+  };
+}
+
+/** The windows of the Performance table, counted back from today. */
+function windows(today: string): [string, string][] {
+  const back = (m: number) => {
+    const d = new Date(today + "T12:00:00Z");
+    d.setUTCMonth(d.getUTCMonth() - m);
+    return d.toISOString().slice(0, 10);
+  };
+  return [["3M", back(3)], ["6M", back(6)], ["YTD", `${today.slice(0, 4)}-01-01`]];
+}
+
+/** Realized P&L by ticker, best and worst first: where a window's money was made and lost. */
+function byTicker(closed: JournalTrade[], n: number): Table {
+  const m = new Map<string, JournalTrade[]>();
+  for (const t of closed) m.set(t.ticker, [...(m.get(t.ticker) ?? []), t]);
+  const rows = [...m].map(([k, ts]) => ({ k, ts, pl: ts.reduce((s, t) => s + t.realizedPl, 0) })).sort((a, b) => b.pl - a.pl);
+  const pick = rows.length > 2 * n ? [...rows.slice(0, n), ...rows.slice(-n)] : rows;
+  return {
+    head: ["Ticker", "Cerrados", "Ganados", "P&L realizado", "Días prom."],
+    right: [1, 2, 3, 4],
+    rows: pick.map(({ k, ts, pl }) => [
+      k, String(ts.length), String(ts.filter((t) => t.realizedPl > 0).length), usd(pl),
+      (ts.reduce((s, t) => s + t.holdingDays, 0) / ts.length).toFixed(0),
+    ]),
+  };
+}
+
 function tradeRows(trades: JournalTrade[]): Table {
   return {
     head: ["Ticker", "Origen", "Compra", "P. compra", "Venta", "P. venta", "Acciones", "Estado", "P&L", "%", "Días"],
@@ -102,6 +146,65 @@ function build(): { title: string; blocks: Block[] } {
       ]),
     },
   });
+
+  // A trade belongs to the window its sale closed in: that is when its P&L was realized.
+  const wins = windows(today);
+  const closedIn = (from: string, o?: JournalTrade["origin"]) =>
+    trades.filter((t) => t.status === "closed" && t.exitDate! >= from && (!o || t.origin === o));
+  const fmt = (n: number | null, d = 2) => (n == null ? "—" : n.toFixed(d));
+  blocks.push({ h: "Por ventana: 3M, 6M y YTD", level: 2 });
+  blocks.push({
+    p: `Trades cerrados en cada ventana (por fecha de venta): 3M desde ${wins[0][1]}, 6M desde ${wins[1][1]}, YTD desde ${wins[2][1]}. ` +
+      `Payoff = ganancia promedio ÷ pérdida promedio; profit factor = ganancias brutas ÷ pérdidas brutas (sobre 1 el proceso gana dinero). ` +
+      `Menos de 30 cerrados es una muestra chica.`,
+  });
+  blocks.push({
+    table: {
+      head: ["Ventana", "Origen", "Cerrados", "P&L realizado", "Win rate", "Payoff", "Profit factor", "Esperanza/trade", "Comisiones", "Días prom.", "Abiertos hoy", "No realizado"],
+      right: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+      rows: wins.flatMap(([w, from]) =>
+        (["agent", "user", undefined] as const).map((o) => {
+          const e = edge(closedIn(from, o));
+          const open = trades.filter((t) => t.status !== "closed" && t.entryDate >= from && (!o || t.origin === o));
+          return [
+            w, o ? ORIGIN[o] : "Total", String(e.closed) + (e.closed && e.closed < 30 ? " (chica)" : ""), usd(e.realized),
+            e.winRate == null ? "—" : `${e.winRate.toFixed(0)}%`, fmt(e.payoff), fmt(e.profitFactor),
+            e.expectancy == null ? "—" : usd(e.expectancy), usd(e.commissions), fmt(e.days, 0),
+            String(open.length), usd(open.reduce((s, t) => s + (t.unrealizedPl ?? 0), 0)),
+          ];
+        }),
+      ),
+    },
+  });
+
+  blocks.push({ h: "P&L realizado por mes (YTD)", level: 3 });
+  const months = [...new Set(closedIn(wins[2][1]).map((t) => t.exitDate!.slice(0, 7)))].sort();
+  blocks.push({
+    table: {
+      head: ["Mes", "Cerrados", "Agente", "Usuario", "Total", "Profit factor usuario"],
+      right: [1, 2, 3, 4, 5],
+      rows: months.map((m) => {
+        const c = closedIn(wins[2][1]).filter((t) => t.exitDate!.startsWith(m));
+        const sum = (xs: JournalTrade[]) => xs.reduce((a, t) => a + t.realizedPl, 0);
+        const ag = c.filter((t) => t.origin === "agent");
+        return [m, String(c.length), ag.length ? usd(sum(ag)) : "—", usd(sum(c.filter((t) => t.origin === "user"))), usd(sum(c)),
+          fmt(edge(c.filter((t) => t.origin === "user")).profitFactor)];
+      }),
+    },
+  });
+
+  for (const [w, from] of wins) {
+    blocks.push({ h: `${w}: dónde se ganó y se perdió (usuario, por ticker)`, level: 3 });
+    blocks.push({ p: "Los 8 tickers con más P&L realizado y los 8 con menos." });
+    blocks.push({ table: byTicker(closedIn(from, "user"), 8) });
+  }
+
+  blocks.push({ h: `Trades cerrados de los últimos 3M (desde ${wins[0][1]})`, level: 3 });
+  blocks.push({ p: "Agente" });
+  const agent3m = closedIn(wins[0][1], "agent");
+  blocks.push(agent3m.length ? { table: tradeRows(agent3m) } : { p: "Ninguno." });
+  blocks.push({ p: "Usuario" });
+  blocks.push({ table: tradeRows(closedIn(wins[0][1], "user")) });
 
   blocks.push({ h: "P&L realizado por año", level: 2 });
   const years = [...new Set(trades.filter((t) => t.status === "closed").map((t) => t.exitDate!.slice(0, 4)))].sort();
