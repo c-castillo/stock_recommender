@@ -140,7 +140,8 @@ https://claude.ai/artifact/YbhruJmz8FpUqySmgy8NRS
 
 1. `pnpm exec tsx scripts/cl/report-page.ts TODAY` writes
    `.whatsapp/cl/reports/TODAY.html`: the orders as cards to type into the
-   Itaú app (sales, then the fund redemption, then the buys), the book, and
+   Itaú app (sales, then the buys; Itaú redeems the fund on its own, so there
+   is no redemption card), the book, and
    the report folded by section.
 2. Load the Artifact tool with ToolSearch, `read` the link above, then publish
    `.whatsapp/cl/reports/TODAY.html` with `url` set to it and no `icon`.

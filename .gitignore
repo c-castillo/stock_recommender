@@ -46,3 +46,6 @@ next-env.d.ts
 
 # python bytecode from scripts/
 __pycache__/
+
+# Itaú statements dropped in the root (client name, RUT, address)
+/informeMensual*.pdf

@@ -98,13 +98,13 @@ US ADD ledger: they are the US book's. Everything you need is here:
    5.796.000 — …" or "SELL 5.200 sh ≈ CLP 9.656.400 — …". A row for a ticker
    that is not held starts with "Not held — ".
 9. Save `.whatsapp/cl/reports/TODAY.orders.json` as `{"orders": [...]}` in the
-   order they should be placed. Each: `ticker`, `side` (buy|sell, or redeem
-   for the money-market fund), `qty` (whole shares; null for the fund),
-   `limitPrice` (CLP number; null for the fund), `amountCLP` (the fund
-   redemption's amount; null otherwise), `mustFill`, `stopLevel` (for a buy:
-   the closing-basis stop; null otherwise), `condition`, `waitsFor`, `why`.
-   Sales first, then the fund redemption a buy needs beyond the sales, then
-   the buys. An empty list when the report asks for nothing.
+   order they should be placed. Each: `ticker`, `side` (buy|sell), `qty`
+   (whole shares), `limitPrice` (CLP number), `amountCLP` (null),
+   `mustFill`, `stopLevel` (for a buy: the closing-basis stop; null
+   otherwise), `condition`, `waitsFor`, `why`. Sales first, then the buys.
+   **No fund redemption, ever:** Itaú redeems CFMITASEM1 on its own to pay a
+   buy, and the user cannot place or time one; write "paid from the fund"
+   instead. An empty list when the report asks for nothing.
 10. Return: the depth, the chart skills you loaded, the three paths, the 🩺
     section verbatim with its Stops table, and a table of ticker / action /
     confidence / entry / stop.
@@ -129,6 +129,11 @@ US ADD ledger: they are the US book's. Everything you need is here:
   hearsay where a CMF notice says otherwise. For a name you BUY or SELL whose
   results came out since the last report, read its análisis razonado and cite
   the period. Banks have no análisis razonado at the CMF: say so.
+- **No order ahead of results.** The playbook's NO TRADE AHEAD OF RESULTS:
+  no BUY or SELL of a name within 10 days of its CMF statements due date
+  until they are filed — not even a fired stop; only the 10% loss cap from
+  cost overrides it. Write it as a HOLD that says what the rules would do
+  after the filing. `check.py` fails an order that breaks it.
 - **Two legs on every row.** The playbook's METHOD rule: each held name
   and each order is read on fundamentals (the CMF statements) and on
   technicals (trend, RRG, levels, order book), written as "Fundamentals:"

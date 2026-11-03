@@ -12,6 +12,8 @@ Reads `.whatsapp/cl/reports/TODAY.json` (recommendations) and
 - no sale for more shares than are held, and buys that fit in the cash-like
   balance (money-market fund + account cash) plus the session's sales;
 - no BUY that loses more than the risk budget at its stop;
+- no BUY or SELL within 10 days of the name's CMF results due date until
+  they are filed (NO TRADE AHEAD OF RESULTS);
 - the orders file agrees with the order rows, and a must-fill sale is
   priced under the last close.
 
@@ -21,6 +23,7 @@ import json
 import os
 import re
 import sys
+from datetime import date, timedelta
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
@@ -60,6 +63,37 @@ def live(ticker):
         return r["meta"]["regularMarketPrice"]
     except Exception:
         return None
+
+
+def ahead_of_results(day, sized, held, prices):
+    """NO TRADE AHEAD OF RESULTS: no BUY/SELL from 10 days before a name's CMF
+    statements due date until that period is filed. A SELL past the 10% loss
+    cap from cost is allowed; a due date over 5 days late lifts the block."""
+    index_path = os.path.join(CL, "cmf", "index.json")
+    if not os.path.exists(index_path):
+        return []
+    index = json.load(open(index_path))
+    today = date.fromisoformat(day)
+    problems = []
+    for t, side, _, price, _ in sized:
+        entry = index.get(t)
+        if not entry or not entry.get("calendar"):
+            print(f"      note: {t} has no CMF calendar; results date unchecked")
+            continue
+        m = re.search(r"-(\d{6})\.json$", entry.get("statements") or "")
+        filed = max(m.group(1)[:4] + "-" + m.group(1)[4:] if m else "", (entry.get("report") or {}).get("period") or "")
+        for year, months in entry["calendar"].items():
+            for month, due in months.items():
+                period, due = f"{year}-{month}", date.fromisoformat(due)
+                if period <= filed or not (due - timedelta(days=10) <= today <= due + timedelta(days=5)):
+                    continue
+                cost = held.get(t, {}).get("avgCost")
+                last = price or prices.get(t)
+                if side == "SELL" and cost and last and last < cost * 0.9:
+                    print(f"      note: SELL {t} ahead of results {due} allowed: {last:,.2f} is past the 10% loss cap from cost {cost:,.2f}")
+                    continue
+                problems.append(f"{side} {t}: {period} statements due {due}, not filed; hold until they are")
+    return problems
 
 
 def main():
@@ -142,6 +176,8 @@ def main():
                 risk.append(f"BUY {t}: CLP {qty * (price - stop):,.0f} at risk, budget CLP {total * RISK:,.0f}")
     check("risk budget on every BUY", risk)
 
+    check("no order ahead of results", ahead_of_results(day, sized, held, prices))
+
     agree = []
     if orders is None:
         agree.append(f"{os.path.basename(orders_path)} is missing")
@@ -153,6 +189,8 @@ def main():
         for x in have - want:
             agree.append(f"orders file has {x[1].upper()} {x[2]} {x[0]}, which is not an order row")
         for o in orders:
+            if o.get("side") not in ("buy", "sell"):
+                agree.append(f"orders file has a {o.get('side')!r} order for {o.get('ticker')}: Itaú redeems the fund on its own, so only buys and sells are placed")
             if o.get("side") == "sell" and o.get("mustFill"):
                 p = prices.get(o["ticker"])
                 if p and o.get("limitPrice") and o["limitPrice"] > p:
