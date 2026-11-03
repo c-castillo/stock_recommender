@@ -25,6 +25,9 @@ same every night, which is the point of having them in a script:
 Options:
   --waive=NOK,SMCI  the user chose to buy these into their results: their earnings
                     failures become notes, and the run says so in the report
+  --waive-price=KORU  the user chose to buy these at a limit priced off the pre-market
+                    print: their price, amount and stop-cap failures, measured from
+                    the last close, become notes
   --reprice         re-price every must-fill sale 0.5% under the live price in the
                     orders file, the rows and the report before checking (an
                     intraday run, where prices move between writing and publishing)
@@ -322,13 +325,21 @@ def main():
         waived = {t.strip().upper() for a in sys.argv if a.startswith("--waive=") for t in a[8:].split(",") if t.strip()}
         notes += [f"WAIVED by the user: {b}" for b in earn if b.split(":")[0] in waived]
         earn = [b for b in earn if b.split(":")[0] not in waived]
+        # The user chose to buy these at a limit priced off the pre-market print, so the
+        # checks that measure from the last close become notes for them.
+        repriced = {t.strip().upper() for a in sys.argv if a.startswith("--waive-price=") for t in a[14:].split(",") if t.strip()}
+
+        def waive_price(bad):
+            notes.extend(f"WAIVED by the user (pre-market limit): {b}" for b in bad if b.split(":")[0] in repriced)
+            return [b for b in bad if b.split(":")[0] not in repriced]
+
         results += [
-            ("prices", check_prices(recs, held, prices)),
-            ("amounts", check_amounts(recs)),
+            ("prices", waive_price(check_prices(recs, held, prices))),
+            ("amounts", waive_price(check_amounts(recs))),
             ("book", check_book(recs, held, power)),
             ("earnings", earn),
             ("risk", check_risk(recs, total)),
-            ("discipline", check_discipline(recs, book.get("positions", []), prices, orders)),
+            ("discipline", waive_price(check_discipline(recs, book.get("positions", []), prices, orders))),
             ("orders", check_orders(recs, orders, held, prices)),
         ]
     else:
