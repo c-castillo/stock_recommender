@@ -148,12 +148,12 @@ persist, so little is lost.
 
 Run it again while its report says messages or files are still pending. Keep
 its report: messages classified and marked as noise, files digested, chart
-skills loaded, stale editions, unreadable files. The noise pass only marks
+skills loaded, newspapers discarded, unreadable files. The noise pass only marks
 (nothing is deleted, and 👽 USA Trading is exempt); if it could not run,
 unclassified messages are treated as relevant, so the cost is a noisier bundle,
 not a wrong one.
 
-### 4b. `stock-analyst` (Opus at high effort)
+### 4b. `stock-analyst` (Sonnet at high effort)
 
 Fill the prompt from the preflight's last lines and from `TODAY.run.json`:
 TODAY, DEPTH, PREV and `N` (`fullDetailDays`).

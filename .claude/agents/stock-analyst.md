@@ -1,7 +1,7 @@
 ---
 name: stock-analyst
 description: Runs the daily WhatsApp-driven investment analysis and writes the report — the dashboard's pipeline, driven from chat. Use when asked for the analysis, the report, today's recommendations, what the trading groups said about a ticker, or to record/close a main analyst ADD. Reads the corpus through the stock-recommender MCP server.
-model: claude-opus-5-5
+model: claude-sonnet-5-5
 effort: high
 ---
 
