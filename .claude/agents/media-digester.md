@@ -48,34 +48,34 @@ as relevant.
 4. Text-heavy files (tweets, news, broker notes, tables, screeners, calendars)
    get `text_heavy: true` and a verbatim `transcript` — the analyst cites the
    exact figures from it.
-5. **PDFs: scan the whole file first, then read the pages that matter.** Never
-   stop at the first two or three pages — the thesis, the estimates table or
-   the price-target change is often further in, and missing it is data loss.
+5. **Newspapers and magazines are discarded unread** (FT, WSJ, Barron's,
+   MoneyWeek, El Mercurio, DF, any whole edition, whoever shares it). Don't
+   scan or Read them. `pdfinfo` and the first page of `pdftotext` are enough
+   to tell an edition from a report. Save one stub so the file leaves the
+   queue: `source: "newspaper — discarded"`, `signal: "unknown"`,
+   `ticker: null`, `levels`/`demark`/`fibonacci: "—"`, `summary: "<title>,
+   <edition date> — discarded unread"`. The bundle hides these stubs.
+6. **Reports, broker notes and research: read them in full.** Every content
+   page, never just the first few; the thesis, the estimates table or the
+   price-target change is often further in, and missing it is data loss. This
+   applies above all to every PDF the MAIN ANALYST shares (`pending_media`
+   marks the sender): process all its content.
    - Scan: `pdfinfo <file>` for the page count, then
      `pdftotext -layout <file> -` (it marks page breaks with a form feed) and
-     map what each page holds. The text pass is cheap; do it for every PDF,
-     whatever its length. If it returns no text (a scanned PDF), Read the pages
-     as images in ranges instead.
-   - Drop the pages with no information: disclaimers, analyst certifications,
-     disclosures, trademark and legal notices, rating-distribution tables,
-     contact lists, blank pages and ads. They usually fill the end of a broker
-     note.
-   - Extract from everything else. Take the text of the relevant pages from the
-     scan, and Read (with `pages`; required over 10 pages) every relevant page
-     that carries a chart, a table or an exhibit, because the text pass loses
-     those.
-   - Broker notes and research reports: cover every content page. Whole
-     newspapers and magazines (FT, WSJ, MoneyWeek, …): use the scan to pick the
-     markets, companies, economy and opinion pages that touch the playbook's
-     sectors or anything the caption or the group discussion points to, and
-     skip the rest.
+     map what each page holds. If it returns no text (a scanned PDF), Read the
+     pages as images in ranges instead.
+   - Skip only the pages with no information: disclaimers, analyst
+     certifications, disclosures, trademark and legal notices,
+     rating-distribution tables, contact lists, blank pages and ads. They
+     usually fill the end of a broker note.
+   - Extract from every other page. Take its text from the scan, and Read
+     (with `pages`; required over 10 pages) every page that carries a chart, a
+     table or an exhibit, because the text pass loses those.
+   - Long reports: give the digest `text_heavy: true` and a `transcript` that
+     carries every content page's figures, estimates, targets and conclusions,
+     not a sample.
    - Say in the summary which pages you read and which you skipped as
      boilerplate, so the analyst knows the note was read in full.
-6. **Check the edition date of every newspaper and magazine** against the
-   message date. A file whose printed date is older is a stale copy (the sender
-   reuses filenames, and an older file with the same name can be stored in its
-   place). Digest only its front page, start the summary with
-   `STALE EDITION (printed <date>)`, and list it in your report.
 7. If a file cannot be read (missing, unsupported format), do not invent a
    digest. Skip it and list it in your report.
 
@@ -105,9 +105,9 @@ once more for the remaining count.
 - Noise pass: messages classified, how many marked as noise, and whether any
   are still pending.
 - Files digested, split into images and PDFs; for each PDF, its page count, the
-  pages read and the pages skipped as boilerplate. Name any PDF whose content
-  pages you did not cover in full, and why.
+  pages read and the pages skipped as boilerplate. Name any report whose
+  content pages you did not cover in full, and why.
 - The chart skills you loaded, or "none — no price charts".
-- Stale editions, with the printed date of each.
+- Newspapers and magazines discarded unread, by title.
 - Files you could not read, and why.
 - How many files are still pending.

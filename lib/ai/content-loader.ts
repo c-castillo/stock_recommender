@@ -137,10 +137,21 @@ function clampStudy(v: string): string {
 }
 
 const TRANSCRIPT_MAX_CHARS = 5000;
+// A report is read in full (every content page), so its transcript gets room.
+const PDF_TRANSCRIPT_MAX_CHARS = 30000;
 
-function clampTranscript(v: string): string {
+function clampTranscript(v: string, max = TRANSCRIPT_MAX_CHARS): string {
   const t = v.trim();
-  return t.length <= TRANSCRIPT_MAX_CHARS ? t : t.slice(0, TRANSCRIPT_MAX_CHARS - 1) + "…";
+  return t.length <= max ? t : t.slice(0, max - 1) + "…";
+}
+
+/** The digester's stub for a newspaper or magazine it discarded unread. */
+function isDiscardedStub(digest: string | null): boolean {
+  try {
+    return /^newspaper — discarded/i.test(JSON.parse(digest ?? "").source ?? "");
+  } catch {
+    return false;
+  }
 }
 
 function indent(v: string): string {
@@ -162,6 +173,7 @@ export function renderMediaDigestBlock(
   rows: MessageForAnalysis[],
   opts: MediaDigestRenderOptions = {}
 ): string {
+  rows = rows.filter((r) => !isDiscardedStub(r.media_digest));
   if (rows.length === 0) return "";
 
   let text = `## Media compartida (resúmenes — ${rows.length} archivos)\n`;
@@ -207,7 +219,12 @@ export function renderMediaDigestBlock(
       if (opts.transcriptSince != null && r.ts < opts.transcriptSince) {
         transcriptsOmitted++;
       } else {
-        text += `    ✎ Texto (transcripción literal):\n${indent(clampTranscript(d.transcript))}\n`;
+        text += `    ✎ Texto (transcripción literal):\n${indent(
+          clampTranscript(
+            d.transcript,
+            r.media_type === "document" ? PDF_TRANSCRIPT_MAX_CHARS : TRANSCRIPT_MAX_CHARS
+          )
+        )}\n`;
       }
     }
   }

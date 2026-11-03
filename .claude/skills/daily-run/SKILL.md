@@ -168,7 +168,7 @@ TODAY, DEPTH, PREV and `N` (`fullDetailDays`).
 > performance-anchor warning; or "the Zesty login failed: the book is the last
 > successful sync">. Open orders at Zesty: <the preflight's resting stops and
 > open buys and sells; or "none">. Buying power: <buying_power>.
-> Media notes from the digester: <stale editions, unreadable files>.
+> Media notes from the digester: <unreadable files, reports not covered in full>.
 > The previous report is PREV. Read these three before you write <or: which
 > one is missing>: `.whatsapp/reports/TODAY.orders-status.md` (what became of
 > PREV's orders, from the broker), `.whatsapp/reports/TODAY.scorecard.md` and
@@ -428,7 +428,7 @@ at the run that sees it, with its own approval.
 - WhatsApp: new messages and media per group, and whether the job reconnected.
 - Noise pass: messages classified and marked as noise.
 - Files digested, chart skills loaded (flag it if charts were digested without
-  `technical-analysis`), stale editions, and anything left undigested.
+  `technical-analysis`), newspapers discarded, and anything left undigested.
 - The depth of the report, and the scorecard's two lines.
 - The 🩺 Portfolio health section, with the stops that are not resting at Zesty
   and the order to place for each.
