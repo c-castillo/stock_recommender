@@ -286,10 +286,11 @@ export const CL_WATCHLIST: Record<string, ClWatch> = {
     added: "2026-10-21",
     source: "User request after a two-leg review on 2026-10-21 (CMF análisis razonado 2026-06).",
     plan:
-      "Not buyable under the rules: no presencia bursátil (a BET at most, never a DIVIDEND holding, no capital-gains " +
-      "exemption), barely trades (5% spread), and sits under a falling MA200. Fundamentals are fine (H1 business up sharply, " +
-      "100% payout, ~7,5% trailing yield, no financial debt, SQM-controlled). Revisit only if presencia bursátil returns and it " +
-      "closes above a rising MA200 (~379).",
+      "A DIVIDEND candidate (liquidity and presencia bursátil no longer count against it, user 2026-11-04): H1 business up " +
+      "sharply, ~7,5% trailing yield, no financial debt, SQM-controlled. The payout decides it: at 100% it fails the income " +
+      "test (payout under 100%), so buy only when the filed payout is under 100% and the dividend is not cut; the entry " +
+      "comes from the technicals (under a falling MA200 now, ~379). A thin book (5% spread): limit at the near side. " +
+      "A sale's gain is taxed (no presencia, no exemption).",
     levels: [{ label: "MA200", price: 379, when: "above" }],
   },
   ECL: {

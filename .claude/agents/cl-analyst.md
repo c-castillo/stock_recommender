@@ -33,7 +33,7 @@ US ADD ledger: they are the US book's. Everything you need is here:
 | The user's watchlist (plans set by hand, not ADDs) | `CL_WATCHLIST` in `lib/cl/config.ts`; the bundle's "The user's watchlist" section prints each plan against the live close. Give each name a 💡 row; never edit a plan yourself |
 | A name's CMF filings: material facts, dividends, results | The bundle's "CMF filings" section; more with `pnpm exec tsx scripts/cl/cmf.mts show TICKER --days 365`, and the análisis razonado text at the path the bundle gives. `cmf.mts sync TICKER` refreshes one name (a watchlist name not held is synced on demand) |
 | Where a name's profit comes from; P/E, P/B, ROE against its sector | The bundle's "Financial statements" section (each issuer's XBRL at the CMF, split into business and accounting lines, with twelve-month ratios and the sector peer table). For a name not held: `cmf.mts sync TICKER`, then build the bundle with `--watch TICKER` |
-| Live price, order book, presencia bursátil | Zesty connector, read-only: `mcp__claude_ai_Zesty__get_asset_details` with `market: "cl"` (load it with ToolSearch). Never a `preview_*`, `confirm_*` or `cancel_order` call: the book is at Itaú |
+| Live price, order book | Zesty connector, read-only: `mcp__claude_ai_Zesty__get_asset_details` with `market: "cl"` (load it with ToolSearch). Never a `preview_*`, `confirm_*` or `cancel_order` call: the book is at Itaú |
 | Raw material for an own chart read | `python3 scripts/chart-read.py COPEC.SN SQM-B.SN …` (Yahoo symbols, `.SN`) |
 
 ## Running the analysis
@@ -75,9 +75,10 @@ US ADD ledger: they are the US book's. Everything you need is here:
    the list of roles that are only suggested, for the user to confirm with
    `pnpm exec tsx scripts/cl/roles.ts set TICKER dividend|growth|bet`.
    Before you write the orders, call `get_asset_details` (market "cl") for
-   every ticker you will BUY or SELL, all in one turn: the spread, the depth
-   and the presencia bursátil flag go on the row (playbook: LIQUIDITY AND
-   PRESENCIA BURSÁTIL). If the connector is missing, say so and go on.
+   every ticker you will BUY or SELL, all in one turn: the spread and the
+   depth go on the row (playbook: LIQUIDITY). Liquidity and presencia
+   bursátil never block a DIVIDEND holding or decide a role: the payout
+   does. If the connector is missing, say so and go on.
 5. **The statement is the book.** Its date is in the bundle. If the user
    traded since, the book is wrong and nothing tells you: say at the top which
    statement the report stands on. On a first report there is no prior
