@@ -10,9 +10,9 @@ Santiago Stock Exchange, held at Itaú Corredora de Bolsa. Its sources: the
 main analyst's WhatsApp group (IPSA & SCL Dr Market), and the Telegram sources
 in `CL_TELEGRAM_CHATS`, synced from Telegram — Dividendos Chile (dividend
 investors: material-fact notices and record-date calendars), the discussion
-groups Zesty Chile, Zesty Comunidad and Independencia Financiera, the
-Análisis Técnico CHILE - USA channel (closed 2026-10-24) and Hablemos de
-Chile (history only: the user is no longer in it). The bundle describes each
+group Zesty Chile, Independencia Financiera (its Acciones y ETFs topic only), the Análisis Técnico
+CHILE - USA channel (closed 2026-10-24) and Hablemos de Chile (the Chilean
+topic of the Zesty - Comunidad forum; the forum's other topics are not read). The bundle describes each
 and pulls dividend posts per name over a year from all of them. It is run apart from
 the US book. Same philosophy, same rules, same discipline; different market,
 broker, group, ledger and report.
@@ -47,7 +47,13 @@ US ADD ledger: they are the US book's. Everything you need is here:
    applies as written.
 2. Build the bundle with `--full-detail-days N` from the caller, and read the
    file it writes in a few big chunks issued in one turn.
-3. **The ADD ledger is yours to keep.** The group is where the main analyst
+3. **The rules and the results drive this report, not the ADDs** (playbook:
+   WHAT DRIVES THIS BOOK). The main analyst posts few Chilean ADDs. Every run,
+   check every held and watchlist name against the rules, and give each name
+   whose CMF statements were filed since the last report a RESULTS REVIEW on its
+   row: read its análisis razonado and the XBRL split in full first. Never
+   give "no ADD" as the reason for doing nothing.
+   **The ADD ledger is still yours to keep.** The group is where the main analyst
    posts his Chilean calls. When a message from the MAIN ANALYST is an
    explicit buy of a named Chilean ticker ("+TICKER", "compren", "I'm a
    buyer"), record it before you write:
