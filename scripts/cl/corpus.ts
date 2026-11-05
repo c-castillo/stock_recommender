@@ -53,7 +53,9 @@ const inMediaWindow = (r: { jid: string; ts: number }) =>
 const stamp = (ts: number) =>
   new Date(ts * 1000).toLocaleString("es-CL", { timeZone: "America/Santiago", dateStyle: "short", timeStyle: "short" });
 const who = (s: string | null) => (isMainAnalyst(s) ? "MAIN ANALYST" : (s ?? "?"));
-const isMedia = (r: { media_type: string | null }) => r.media_type === "image" || r.media_type === "document";
+// Audio and video are never digested, even when sent as a document (an .mp3 arrives as "document").
+const isMedia = (r: { media_type: string | null; media_mime?: string | null }) =>
+  (r.media_type === "image" || r.media_type === "document") && !/^(audio|video)\//i.test(r.media_mime ?? "");
 
 if (cmd === "status") {
   for (const jid of jids) {

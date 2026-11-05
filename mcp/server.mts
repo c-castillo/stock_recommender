@@ -88,12 +88,17 @@ function fmtTs(ts: number): string {
   return `${d.toLocaleDateString("en-CA")} ${d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`;
 }
 
+/** Images and documents are digested; audio and video never are, even when
+ *  sent as a document (an .mp3 arrives as media_type "document"). */
+function isDigestible(r: { media_type: string | null; media_mime: string | null }): boolean {
+  if (r.media_type !== "image" && r.media_type !== "document") return false;
+  return !/^(audio|video)\//i.test(r.media_mime ?? "");
+}
+
 /** Media in the window that sync never digested — the analysis can't see it. */
 function countUndigestedMedia(days: number): number {
   return getContentForAnalysis(days, 6000).filter(
-    (r) =>
-      (r.media_type === "image" || r.media_type === "document") &&
-      r.media_digest == null
+    (r) => isDigestible(r) && r.media_digest == null
   ).length;
 }
 
@@ -336,7 +341,7 @@ export function buildMcpServer(): McpServer {
     },
     async ({ days }) => {
       const rows = getContentForAnalysis(days, 6000).filter(
-        (r) => r.media_digest != null && (r.media_type === "image" || r.media_type === "document")
+        (r) => r.media_digest != null && isDigestible(r)
       );
       if (rows.length === 0) return text(`No digested media in the last ${days} days.`);
       const undigested = countUndigestedMedia(days);
@@ -371,7 +376,7 @@ export function buildMcpServer(): McpServer {
           (r) =>
             r.media_path &&
             r.media_digest == null &&
-            (r.media_type === "image" || r.media_type === "document") &&
+            isDigestible(r) &&
             fs.existsSync(r.media_path)
         )
         .sort((a, b) => b.ts - a.ts);

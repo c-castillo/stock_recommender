@@ -482,8 +482,8 @@ for (const [group, days, about] of sections) {
   const jids = listGroupJidsByName([group]);
   const content = getGroupContent(jids, days, 6000);
   const textRows = content.filter((r) => r.body && !/^\[(image|document|video|audio|sticker)\]$/.test(r.body));
-  const mediaRows = content.filter((r) => r.media_digest != null && (r.media_type === "image" || r.media_type === "document"));
-  const undigested = content.filter((r) => r.media_digest == null && (r.media_type === "image" || r.media_type === "document")).length;
+  const mediaRows = content.filter((r) => r.media_digest != null && (r.media_type === "image" || r.media_type === "document") && !/^(audio|video)\//i.test(r.media_mime ?? ""));
+  const undigested = content.filter((r) => r.media_digest == null && (r.media_type === "image" || r.media_type === "document") && !/^(audio|video)\//i.test(r.media_mime ?? "")).length;
   const newest = content[0];
   say(`## Source: ${group} (last ${days} days)`);
   say();
