@@ -29,6 +29,11 @@ export interface ClTelegramChat {
   about: string;
   media?: false;
   days?: number;
+  /** A topic of a Telegram forum rather than a chat of its own: `forum` is
+   *  the forum's dialog title and `topic` the topic's id. `chat` stays the
+   *  name an export of the topic carries. */
+  forum?: string;
+  topic?: number;
 }
 export const CL_TELEGRAM_CHATS: ClTelegramChat[] = [
   {
@@ -43,7 +48,12 @@ export const CL_TELEGRAM_CHATS: ClTelegramChat[] = [
     chat: "🇨🇱 Hablemos de Chile",
     jid: "tg:hablemos-de-chile",
     group: "Hablemos de Chile (Telegram)",
-    about: "A general Chilean-market chat: members' views on Chilean stocks, the economy and politics. Opinions are chat; forwarded notices and data are dated facts.",
+    // A topic of the "Zesty - Comunidad" forum, not a chat: its other topics
+    // (general chat, US, crypto) are not read for the Chilean book.
+    forum: "Zesty - Comunidad",
+    topic: 6250,
+    media: false,
+    about: "Zesty Comunidad's Chilean topic, a general Chilean-market chat: members' views on Chilean stocks, the economy and politics. Opinions are chat; forwarded notices and data are dated facts.",
   },
   {
     chat: "Análisis Técnico CHILE - USA🇨🇱 🇺🇸",
@@ -67,14 +77,11 @@ export const CL_TELEGRAM_CHATS: ClTelegramChat[] = [
     chat: "Independencia Financiera 📊",
     jid: "tg:independencia-financiera",
     group: "Independencia Financiera (Telegram)",
-    about: "A long-term and dividend investing discussion group. Opinions are chat; forwarded notices and data are dated facts.",
-    media: false,
-  },
-  {
-    chat: "Zesty - Comunidad",
-    jid: "tg:zesty-comunidad",
-    group: "Zesty Comunidad (Telegram)",
-    about: "Zesty's own community group: users discuss Chilean and US stocks, and the broker posts announcements. Opinions are chat; forwarded notices and data are dated facts.",
+    // A forum: only its "Acciones y ETFs" topic is read (the user's choice,
+    // 2026-11-05); crypto, real estate, off-topic and the rest are not.
+    forum: "Independencia Financiera 📊",
+    topic: 29266,
+    about: "The stocks and ETFs topic of a long-term and dividend investing forum. Opinions are chat; forwarded notices and data are dated facts.",
     media: false,
   },
 ];

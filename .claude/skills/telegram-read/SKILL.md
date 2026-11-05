@@ -1,6 +1,6 @@
 ---
 name: telegram-read
-description: Read the Chilean book's Telegram sources — Dividendos Chile, Zesty Chile, Zesty Comunidad, Independencia Financiera, Análisis Técnico CHILE - USA and the stored Hablemos de Chile — outside a /chile-run. Syncs them live from Telegram as the user's account (no export), then reads the last days or searches them. Use when asked what the Telegram groups said, for the dividends with a record date this week, or what one of those groups posted about a Chilean ticker. Read-only; nothing is published or traded.
+description: Read the Chilean book's Telegram sources — Dividendos Chile, Zesty Chile, Análisis Técnico CHILE - USA, Independencia Financiera (its Acciones y ETFs topic only) and Hablemos de Chile (the Chilean topic of the Zesty - Comunidad forum) — outside a /chile-run. Syncs them live from Telegram as the user's account (no export), then reads the last days or searches them. Use when asked what the Telegram groups said, for the dividends with a record date this week, or what one of those groups posted about a Chilean ticker. Read-only; nothing is published or traded.
 ---
 
 # Telegram read: sync → read or search

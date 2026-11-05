@@ -65,12 +65,14 @@ async function syncChat(client: ReturnType<typeof makeClient>, entity: Api.TypeE
 
   const rows: MessageRow[] = [];
   let files = 0;
-  for await (const msg of client.iterMessages(entity, { minId })) {
+  // A forum topic is read as the thread of replies to its opening message.
+  for await (const msg of client.iterMessages(entity, { minId, ...(chat.topic ? { replyTo: chat.topic } : {}) })) {
     if (!(msg instanceof Api.Message)) continue;
     if (!minId && msg.date < since) break;
     const parts: string[] = [];
+    // In a topic, a plain post "replies" to the topic itself: not a reply.
     const reply = msg.replyTo?.replyToMsgId;
-    if (reply) parts.push(`↪ reply to #${reply}`);
+    if (reply && reply !== chat.topic) parts.push(`↪ reply to #${reply}`);
     if (msg.fwdFrom) {
       const who = msg.fwdFrom.fromName ?? nameOf(await msg.forward?.getSender().catch(() => undefined)) ?? nameOf(await msg.forward?.getChat().catch(() => undefined));
       parts.push(`[forwarded from ${who ?? "?"}]`);
@@ -136,9 +138,10 @@ if (!(await client.checkAuthorization())) {
 const dialogs = await client.getDialogs({});
 let found = 0;
 for (const chat of CL_TELEGRAM_CHATS) {
-  const d = dialogs.find((x) => x.title === chat.chat);
+  const title = chat.forum ?? chat.chat;
+  const d = dialogs.find((x) => x.title === title);
   if (!d?.entity) {
-    console.log(`${chat.group}: "${chat.chat}" is not among the account's chats; the run goes on with what is stored.`);
+    console.log(`${chat.group}: "${title}" is not among the account's chats; the run goes on with what is stored.`);
     continue;
   }
   found++;
