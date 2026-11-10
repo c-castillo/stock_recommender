@@ -213,6 +213,12 @@ export interface Valuation {
   cashConversion: number | null;
   /** Financial debt less cash, over owners' equity. */
   netDebtToEquity: number | null;
+  /** Twelve months' business result plus depreciation and amortisation, in the filing's currency. */
+  ebitda: number | null;
+  /** Net financial debt over that EBITDA, in years of EBITDA: 1-3 is a comfortable
+   *  balance sheet, over 5 is the heavily indebted company. Null when EBITDA is
+   *  not positive or the filing has no D&A line. */
+  netDebtToEbitda: number | null;
   /** CLP per unit of the filing's currency used (1 for CLP). */
   fx: number;
 }
@@ -236,6 +242,8 @@ export function valuation(cur: CmfStatements, ttm: Flow | null, price: number, u
   const debt = st.OtherCurrentFinancialLiabilities != null || st.OtherNoncurrentFinancialLiabilities != null
     ? (st.OtherCurrentFinancialLiabilities ?? 0) + (st.OtherNoncurrentFinancialLiabilities ?? 0) - (st.CashAndCashEquivalents ?? 0)
     : null;
+  const da = ttm?.DepreciationAndAmortisationExpense;
+  const ebitda = biz != null && da != null ? biz + da : null;
   return {
     shares,
     epsTtm: eps,
@@ -245,6 +253,8 @@ export function valuation(cur: CmfStatements, ttm: Flow | null, price: number, u
     roeBusiness: biz != null && equity ? (biz * (1 - CL_TAX)) / equity : null,
     cashConversion: ttm?.CashFlowsFromUsedInOperatingActivities != null && ttm.ProfitLoss ? ttm.CashFlowsFromUsedInOperatingActivities / ttm.ProfitLoss : null,
     netDebtToEquity: debt != null && equity ? debt / equity : null,
+    ebitda,
+    netDebtToEbitda: debt != null && ebitda != null && ebitda > 0 ? debt / ebitda : null,
     fx,
   };
 }
@@ -295,6 +305,10 @@ export function qualityFlags(ttm: ProfitSources | null, ytd: ProfitSources, ytdP
     }
   }
   if (v?.cashConversion != null && v.cashConversion < 0.8) out.push(`operating cash flow is ${n2(v.cashConversion)}× net profit: profit not backed by cash`);
+  if (v?.netDebtToEbitda != null) {
+    if (v.netDebtToEbitda > 5) out.push(`net financial debt is ${n2(v.netDebtToEbitda)}× EBITDA: over 5, the heavily indebted tier`);
+    else if (v.netDebtToEbitda > 3) out.push(`net financial debt is ${n2(v.netDebtToEbitda)}× EBITDA: above the 1-3 comfortable range`);
+  } else if (v && v.ebitda != null && v.ebitda <= 0) out.push("EBITDA is not positive over 12 months: net debt / EBITDA has no meaning, and the debt is a risk by itself");
   if (ttm?.netToOwners != null && ttm.netToOwners < 0) out.push("a loss over 12 months: no P/E");
   return out;
 }
@@ -344,7 +358,7 @@ export function renderFinancials(
     lines.push(
       `Valuation at CLP ${n2(price)}, 12 months${cur.currency !== "CLP" ? ` (${cur.currency} at ${n2(v.fx)} CLP)` : ""}: ` +
         `EPS CLP ${n2(v.epsTtm)} · **P/E ${n2(v.pe)}** · **P/B ${n2(v.pb)}** · **ROE ${pct(v.roe)}** (on the business alone, after 27% tax: ${pct(v.roeBusiness)}) · ` +
-        `cash conversion ${n2(v.cashConversion)}× · net financial debt / equity ${n2(v.netDebtToEquity)}.` +
+        `cash conversion ${n2(v.cashConversion)}× · net financial debt / equity ${n2(v.netDebtToEquity)} · **net financial debt / EBITDA ${v.netDebtToEbitda != null ? n2(v.netDebtToEbitda) + "×" : "—"}** (EBITDA = business result + D&A, 12 months: ${mm(v.ebitda)}).` +
         (tv ? ` TradingView: P/E ${n2(tv.pe)}, P/B ${n2(tv.pb)}, ROE ${pct(tv.roe)}.` : "")
     );
   }
