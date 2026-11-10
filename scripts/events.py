@@ -23,14 +23,56 @@ import sys
 import time
 import urllib.parse
 
-from marketdata import REPORTS, get
+from marketdata import REPORTS, ROOT, get
 
+SOURCE = []
 AHEAD_DAYS = 21
+FINNHUB_HOUR = {"bmo": "before the open", "amc": "after the close", "dmh": "during the session"}
+
+
+def finnhub_key():
+    """FINNHUB_API_KEY from the environment or .env.local (gitignored)."""
+    if os.environ.get("FINNHUB_API_KEY"):
+        return os.environ["FINNHUB_API_KEY"]
+    try:
+        for line in open(os.path.join(ROOT, ".env.local")):
+            if line.startswith("FINNHUB_API_KEY="):
+                return line.split("=", 1)[1].strip().strip("\"'")
+    except OSError:
+        pass
+    return None
+
+
+def finnhub_earnings(tickers):
+    """Fallback when Nasdaq's calendar is down: one Finnhub request per ticker."""
+    key = finnhub_key()
+    if not key:
+        print("  (Finnhub fallback skipped: no FINNHUB_API_KEY)")
+        return {}
+    today = dt.date.today()
+    end = today + dt.timedelta(days=AHEAD_DAYS)
+    found = {}
+    for t in tickers:
+        try:
+            url = (f"https://finnhub.io/api/v1/calendar/earnings?from={today}&to={end}"
+                   f"&symbol={t}&token={key}")
+            rows = json.loads(get(url)).get("earningsCalendar") or []
+        except Exception as e:
+            print(f"  (Finnhub {t} unavailable: {e})")
+            continue
+        for r in sorted(rows, key=lambda r: r.get("date") or ""):
+            if r.get("date"):
+                eps = r.get("epsEstimate")
+                found[t] = (dt.date.fromisoformat(r["date"]), FINNHUB_HOUR.get(r.get("hour"), "time not given"),
+                            f"{eps:.2f}" if isinstance(eps, (int, float)) else "—")
+                break
+        time.sleep(1.1)
+    return found
 WHEN = {"time-pre-market": "before the open", "time-after-hours": "after the close", "time-not-supplied": "time not given"}
 
 
 def earnings(tickers):
-    wanted, found = set(tickers), {}
+    wanted, found, failed = set(tickers), {}, 0
     today = dt.date.today()
     for i in range(AHEAD_DAYS + 1):
         day = today + dt.timedelta(days=i)
@@ -41,12 +83,18 @@ def earnings(tickers):
             rows = (data.get("data") or {}).get("rows") or []
         except Exception as e:
             print(f"  (calendar for {day} unavailable: {e})")
+            failed += 1
             continue
         for r in rows:
             sym = (r.get("symbol") or "").upper()
             if sym in wanted and sym not in found:
                 found[sym] = (day, WHEN.get(r.get("time"), "time not given"), r.get("epsForecast") or "—")
         time.sleep(0.15)
+    if failed:
+        # Nasdaq answered with errors (it 403s some days): ask Finnhub for what is missing.
+        for t, v in finnhub_earnings([t for t in tickers if t not in found]).items():
+            found[t] = v
+        SOURCE.append("Nasdaq calendar had errors; gaps filled from Finnhub")
     return found
 
 
@@ -87,7 +135,7 @@ def main():
 
     found = earnings(tickers)
     today = dt.date.today()
-    print(f"## Earnings in the next {AHEAD_DAYS} days (Nasdaq calendar, read {today})")
+    print(f"## Earnings in the next {AHEAD_DAYS} days (Nasdaq calendar, read {today}{'; ' + SOURCE[0] if SOURCE else ''})")
     print("Ticker|Date|Days away|When|Consensus EPS")
     print("---|---|---|---|---")
     for t in sorted(found, key=lambda t: found[t][0]):
