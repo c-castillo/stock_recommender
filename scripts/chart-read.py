@@ -52,6 +52,16 @@ def read(ticker):
     d, w = bars(ticker, "1d"), by_week(bars(ticker, "1wk"))
     c = [r[3] for r in d]
     print(f"\n=== {ticker} · last bar {d[-1][0]} · {c[-1]:.2f}")
+    if len(c) >= 220:  # the playbook's OWN TREND gate, on its own definitions
+        m50, m200, was = sma(c, 50), sma(c, 200), sma(c, 200, len(c) - 20)
+        ok = c[-1] > m50 and m200 > was
+        print(
+            f"  OWN TREND {'passes' if ok else 'FAILS'}: close {c[-1]:.2f} "
+            f"{'above' if c[-1] > m50 else 'not above'} SMA50 {m50:.2f} · "
+            f"SMA200 {m200:.2f} {'rising' if m200 > was else 'not rising'} {100 * (m200 / was - 1):+.2f}% in 20d"
+        )
+    else:
+        print("  OWN TREND FAILS: under 220 sessions of history, no 200-day slope")
     for n in (21, 55, 144, 200):
         if len(c) < n + 10:
             print(f"  SMA{n}: not enough history")

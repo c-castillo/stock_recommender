@@ -212,6 +212,28 @@ class PublishChecks(unittest.TestCase):
         self.assertEqual(len(publish.check_risk([self.rec(stopLoss=None)], book)), 1)
         self.assertEqual(publish.check_risk([self.rec(ticker="SSG")], book), [])
 
+    def test_trend(self):
+        days = [(dt.date(2025, 1, 1) + dt.timedelta(days=i)).isoformat() for i in range(260)]
+        rising = dict(zip(days, [100 + i * 0.5 for i in range(260)]))
+        self.assertEqual(publish.check_trend([self.rec()], {"MRVL": rising}), [])
+        dipped = {**rising, days[-1]: 150.0}  # the 200-day still rises, the close is under the 50-day
+        bad = publish.check_trend([self.rec()], {"MRVL": dipped})
+        self.assertEqual(len(bad), 1)
+        self.assertIn("not above its 50-day", bad[0])
+        falling = dict(zip(days, [300 - i * 0.5 for i in range(260)]))
+        self.assertEqual(len(publish.check_trend([self.rec()], {"MRVL": falling})), 2)
+        young = dict(zip(days[:100], range(100, 200)))
+        self.assertIn("under the 220", publish.check_trend([self.rec()], {"MRVL": young})[0])
+        self.assertEqual(len(publish.check_trend([self.rec()], {})), 1)  # no bars is not a pass
+        # A hedge is judged by its underlying, and a HOLD or a SELL is not a buy.
+        self.assertEqual(publish.check_trend([self.rec(ticker="SSG")], {}), [])
+        self.assertEqual(publish.check_trend([self.rec(action="HOLD", reasoning="HOLD")], {}), [])
+
+    def test_no_leveraged_longs(self):
+        for t in ("KORU", "SNDU", "UXRP"):
+            self.assertTrue(any("leveraged long fund" in b for b in publish.check_discipline([self.rec(ticker=t)], [], {})))
+        self.assertEqual(publish.check_discipline([self.rec()], [], {}), [])
+
     def test_orders_file(self):
         recs = [self.rec(ticker="LRCX", action="SELL", entryPrice="$301.11", reasoning="SELL 6 sh ≈ $1,807 — funding leg")]
         ok = [{"ticker": "LRCX", "side": "sell", "type": "limit", "qty": 6, "limitPrice": 299.6, "source": "order", "mustFill": True},

@@ -283,7 +283,9 @@ $; no sale for more shares than are held and buys that fit in buying power;
 every held ticker has a row; no BUY (new or an add) within five sessions of
 its own results and no discretionary SELL within three (fired stops and
 must-fill rule sales still go); no BUY that loses more than the risk budget at its stop; no
-BUY of a leveraged crypto fund, no new stop more than 10% under its entry, and
+BUY (an ADD included) of a name that is not above its 50-day average with a
+rising 200-day (OWN TREND; `chart-read.py` prints the reading); no
+BUY of a leveraged long fund, no new stop more than 10% under its entry, and
 every held long more than 10% under its cost sold (or, for an ACTIVE or AGING
 ADD, trimmed); the orders file agrees with the order rows, and a must-fill sale is priced under
 the market.

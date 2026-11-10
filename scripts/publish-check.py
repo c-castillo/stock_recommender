@@ -18,7 +18,9 @@ same every night, which is the point of having them in a script:
              must-fill rule sale still goes), and no BUY of a company with no
              date checked at all
   risk       no BUY loses more than the risk budget between its entry and its stop
-  discipline no BUY of a leveraged crypto fund, no new stop more than 10% under
+  trend      no BUY (an ADD included) of a name whose last close is not above its
+             50-day average or whose 200-day average is not rising (OWN TREND)
+  discipline no BUY of a leveraged long fund, no new stop more than 10% under
              the entry, and every held long more than 10% under its cost is sold
              (or trimmed, when the row says it is an ACTIVE or AGING ADD)
   orders     the orders file agrees with the rows, and a sale that must fill is
@@ -44,7 +46,7 @@ import os
 import re
 import sys
 
-from marketdata import HEDGES, REPORTS, RISK_PER_POSITION, ROOT, api, load
+from marketdata import Closes, HEDGES, REPORTS, RISK_PER_POSITION, ROOT, api, load
 
 HELD_ROW = re.compile(r"^HOLD\s+[\d,.]+\s*sh\s*=\s*\$")
 MONEY = re.compile(r"\$\s*([\d,]+(?:\.\d+)?)")
@@ -56,8 +58,16 @@ ETFS = {"SMH", "SOXX", "SPY", "QQQ", "IGV", "GLD", "SLV", "TLT", "XLK", "XLC", "
 MUST_FILL_DISCOUNT = 0.005
 # LOSS DISCIPLINE in the playbook: the most a long may lose from its cost.
 MAX_LOSS = 0.10
-# Leveraged funds on crypto or crypto proxies: never bought (the journal lost $22k on three).
-CRYPTO_LEVERAGED = {"UXRP", "XRPT", "XXRP", "ETHU", "ETHT", "SOLT", "SOLX", "BITX", "BITU", "MSTU", "MSTX", "CONL", "CONX"}
+# Leveraged long funds: never bought (217 closed trades, profit factor 0.23, −$20.5k in
+# the journal). The list is the ones the groups and the journal have named, not every
+# such fund: the playbook states the rule, this catches the known ones.
+LEVERAGED_LONG = {
+    "UXRP", "XRPT", "XXRP", "ETHU", "ETHT", "SOLT", "SOLX", "BITX", "BITU", "MSTU", "MSTX", "CONL", "CONX",  # crypto
+    "SNDU", "RAM", "NVDL", "NVDU", "TSLL", "MUU", "AMDL", "SMCX", "PLTU", "RIOX", "IREX", "CLSX", "MRAL",  # single stock
+    "KORU", "SOXL", "TQQQ", "UPRO", "SPXL", "TECL", "FNGU", "LABU", "USD", "QLD", "SSO",  # country, sector, index
+}
+# OWN TREND in the playbook: bars for the 200-day average and its reading 20 sessions back.
+TREND_BARS = 220
 
 
 def first_money(text):
@@ -218,6 +228,29 @@ def check_risk(recs, total):
     return bad
 
 
+def check_trend(recs, bars):
+    """OWN TREND: every BUY order's name closed above its 50-day average and has a
+    rising 200-day. `bars` is {ticker: {iso date: close}}; a name with no bars, or
+    too few for a 200-day slope, is not a pass."""
+    bad = []
+    for r in recs:
+        m = ORDER.match(r.get("reasoning") or "")
+        t = r["ticker"]
+        if not m or m.group(1) != "BUY" or t in HEDGES:
+            continue
+        b = bars.get(t) or {}
+        c = [b[d] for d in sorted(b)]
+        if len(c) < TREND_BARS:
+            bad.append(f"{t}: BUY with {len(c)} sessions of history, under the {TREND_BARS} a 200-day slope needs (OWN TREND)")
+            continue
+        m50, m200, was = sum(c[-50:]) / 50, sum(c[-200:]) / 200, sum(c[-220:-20]) / 200
+        if c[-1] <= m50:
+            bad.append(f"{t}: BUY with the close ${c[-1]:,.2f} not above its 50-day ${m50:,.2f} (OWN TREND)")
+        if m200 <= was:
+            bad.append(f"{t}: BUY with a 200-day that is not rising ({100 * (m200 / was - 1):+.2f}% in 20 sessions) (OWN TREND)")
+    return bad
+
+
 def check_discipline(recs, positions, prices, orders=()):
     bad = []
     cost = {p["ticker"]: p.get("avg_cost") for p in positions}
@@ -231,8 +264,8 @@ def check_discipline(recs, positions, prices, orders=()):
         m = ORDER.match(r.get("reasoning") or "")
         if not m or m.group(1) != "BUY":
             continue
-        if r["ticker"] in CRYPTO_LEVERAGED:
-            bad.append(f"{r['ticker']}: BUY of a leveraged crypto fund")
+        if r["ticker"] in LEVERAGED_LONG:
+            bad.append(f"{r['ticker']}: BUY of a leveraged long fund")
         entry, stop = first_money(r.get("entryPrice")), first_money(r.get("stopLoss"))
         if r["ticker"] not in HEDGES and entry and stop and stop < entry * (1 - MAX_LOSS) - 0.01:
             bad.append(f"{r['ticker']}: stop ${stop:,.2f} is {100 * (1 - stop / entry):.1f}% under the entry; the cap is 10%")
@@ -318,6 +351,18 @@ def reprice(date, data, orders):
     return moved
 
 
+def trend_bars(recs):
+    """Two years of closes for each name a BUY order asks for."""
+    want = sorted({r["ticker"] for r in recs if r["ticker"] not in HEDGES
+                   and (ORDER.match(r.get("reasoning") or "") or [None, None])[1] == "BUY"})
+    if not want:
+        return {}
+    closes = Closes("2y")
+    out = {t: closes.of(t) for t in want}
+    closes.save()
+    return out
+
+
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     date = args[0] if args else dt.date.today().isoformat()
@@ -372,6 +417,7 @@ def main():
             ("book", check_book(recs, held, power)),
             ("earnings", earn),
             ("risk", check_risk(recs, total)),
+            ("trend", check_trend(recs, trend_bars(recs))),
             ("discipline", waive_price(check_discipline(recs, book.get("positions", []), prices, orders))),
             ("orders", check_orders(recs, orders, held, prices)),
         ]
