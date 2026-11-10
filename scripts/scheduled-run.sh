@@ -42,8 +42,7 @@ esac
 
 # What the session may do without asking, and what it may never do.
 ALLOW=(
-  "Bash(python3 scripts/*)" "Bash(pnpm exec tsx scripts/report-page.ts *)" "Bash(pnpm dev)"
-  "Bash(curl *)" "Bash(date *)" "Bash(ls *)"
+  Bash
   Read Write Edit Glob Grep Agent Skill ToolSearch Monitor Artifact PushNotification
   mcp__stock-recommender mcp__tradingview
   mcp__claude_ai_Zesty__get_orders mcp__claude_ai_Zesty__get_order_detail mcp__claude_ai_Zesty__get_positions
