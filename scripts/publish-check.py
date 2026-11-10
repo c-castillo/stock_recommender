@@ -13,8 +13,10 @@ same every night, which is the point of having them in a script:
   amounts    shares × price matches the $ the order states, within 2%
   book       no sale for more shares than are held; buys fit in buying power;
              every held ticker has a row
-  earnings   no BUY of a name whose results fall within three sessions, and no
-             BUY of a company with no date checked at all
+  earnings   no BUY (new or an add) of a name whose results fall within five
+             sessions, no discretionary SELL within three (a fired stop or a
+             must-fill rule sale still goes), and no BUY of a company with no
+             date checked at all
   risk       no BUY loses more than the risk budget between its entry and its stop
   discipline no BUY of a leveraged crypto fund, no new stop more than 10% under
              the entry, and every held long more than 10% under its cost is sold
@@ -23,7 +25,7 @@ same every night, which is the point of having them in a script:
              priced to fill
 
 Options:
-  --waive=NOK,SMCI  the user chose to buy these into their results: their earnings
+  --waive=NOK,SMCI  the user chose to trade these into their results: their earnings
                     failures become notes, and the run says so in the report
   --waive-price=KORU  the user chose to buy these at a limit priced off the pre-market
                     print: their price, amount and stop-cap failures, measured from
@@ -145,26 +147,55 @@ def sessions_until(day, today):
     return n
 
 
-def check_earnings(recs, held, calendar, today):
-    """`calendar` is {ticker: date} for the BUY names, or None when it could not be read."""
+# NO TRADE INTO ITS OWN RESULTS (the playbook): no BUY of any kind in the five
+# sessions before a print, and no discretionary SELL in the three before it.
+NO_BUY_SESSIONS = 5
+NO_SALE_SESSIONS = 3
+
+
+def discretionary_sales(orders):
+    """Sell limits that are an opinion on price: not a fired stop or another rule sale."""
+    return sorted({o["ticker"] for o in orders if o.get("side") == "sell" and o.get("type") == "limit"
+                   and not o.get("stopTriggered") and not o.get("mustFill")})
+
+
+def check_earnings(recs, held, calendar, today, orders=()):
+    """`calendar` is {ticker: (date, when, eps)} for the BUY and sold names, or None when it could not be read."""
     bad, notes = [], []
     buys = [r["ticker"] for r in recs if r["action"] == "BUY" and ORDER.match(r.get("reasoning") or "")]
-    if not buys:
+    sales = [t for t in discretionary_sales(orders) if t not in ETFS | HEDGES]
+    if not buys and not sales:
         return bad, notes
     if calendar is None:
-        return ["the earnings calendar could not be read: a BUY cannot be checked against its results date"], notes
+        return ["the earnings calendar could not be read: a BUY or a discretionary SELL cannot be checked against its results date"], notes
+
+    def ahead(t):
+        """Sessions to a print that is not out yet, or None when there is none to wait for."""
+        day, when = (calendar.get(t) or (None, None))[:2]
+        if day is None:
+            return None, None
+        away = sessions_until(day, today)
+        # A print before today's open is already out: the run decides on it.
+        if away == 0 and when == "before the open":
+            return None, day
+        return away, day
+
     for t in buys:
-        day = calendar.get(t)
+        away, day = ahead(t)
         if day is None:
             notes.append(f"{t}: no results in the next 21 days")
-            continue
-        away = sessions_until(day, today)
-        if away <= 3 and t not in held:
-            bad.append(f"{t}: BUY opens a position {away} session(s) before its results on {day:%a %d-%m}")
-        elif away <= 3:
-            notes.append(f"{t}: results on {day:%a %d-%m}, {away} session(s) away — adding needs a main-analyst ADD refreshed this session")
+        elif away is None:
+            notes.append(f"{t}: results out before today's open ({day:%a %d-%m})")
+        elif away <= NO_BUY_SESSIONS:
+            kind = "adds to the position" if t in held else "opens a position"
+            bad.append(f"{t}: BUY {kind} {away} session(s) before its results on {day:%a %d-%m}; no BUY until the print is out")
         else:
             notes.append(f"{t}: results on {day:%a %d-%m}, {away} sessions away")
+    for t in sales:
+        away, day = ahead(t)
+        if away is not None and away <= NO_SALE_SESSIONS:
+            bad.append(f"{t}: discretionary SELL {away} session(s) before its results on {day:%a %d-%m}; "
+                       "only a rule sale (stopTriggered or mustFill) may go before the print")
     return bad, notes
 
 
@@ -313,15 +344,17 @@ def main():
         prices = api("/api/prices?tickers=" + ",".join(tickers)).get("prices", {}) if tickers else {}
         buys = [r["ticker"] for r in recs if r["action"] == "BUY" and r["ticker"] not in ETFS | HEDGES
                 and ORDER.match(r.get("reasoning") or "")]
+        dated = sorted(set(buys) | {t for t in discretionary_sales(orders) if t not in ETFS | HEDGES})
         calendar = {}
-        if buys:
+        if dated:
             try:
                 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
                 from events import earnings
-                calendar = {t: v[0] for t, v in earnings(buys).items()}
+                calendar = earnings(dated)
             except Exception:
                 calendar = None
-        earn, notes = check_earnings([r for r in recs if r["ticker"] not in ETFS | HEDGES], held, calendar, dt.date.today())
+        earn, notes = check_earnings([r for r in recs if r["ticker"] not in ETFS | HEDGES], held, calendar,
+                                     dt.date.today(), orders)
         waived = {t.strip().upper() for a in sys.argv if a.startswith("--waive=") for t in a[8:].split(",") if t.strip()}
         notes += [f"WAIVED by the user: {b}" for b in earn if b.split(":")[0] in waived]
         earn = [b for b in earn if b.split(":")[0] not in waived]

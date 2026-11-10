@@ -153,7 +153,7 @@ skills loaded, newspapers discarded, unreadable files. The noise pass only marks
 unclassified messages are treated as relevant, so the cost is a noisier bundle,
 not a wrong one.
 
-### 4b. `stock-analyst` (Sonnet at high effort)
+### 4b. `stock-analyst` (Opus at high effort)
 
 Fill the prompt from the preflight's last lines and from `TODAY.run.json`:
 TODAY, DEPTH, PREV and `N` (`fullDetailDays`).
@@ -280,15 +280,16 @@ python3 scripts/publish-check.py TODAY --publish  # checks, backup, publish, ver
 The checks, the same every day: the shape of every row; each BUY's and held
 SELL's entry price within 2% of the market; shares × price against the stated
 $; no sale for more shares than are held and buys that fit in buying power;
-every held ticker has a row; no new position opened within three sessions of
-its own results; no BUY that loses more than the risk budget at its stop; no
+every held ticker has a row; no BUY (new or an add) within five sessions of
+its own results and no discretionary SELL within three (fired stops and
+must-fill rule sales still go); no BUY that loses more than the risk budget at its stop; no
 BUY of a leveraged crypto fund, no new stop more than 10% under its entry, and
 every held long more than 10% under its cost sold (or, for an ACTIVE or AGING
 ADD, trimmed); the orders file agrees with the order rows, and a must-fill sale is priced under
 the market.
 
 Two options, for what is the user's call or a moving market rather than a
-slip: `--waive=NOK` when the user has chosen to buy a name into its results
+slip: `--waive=NOK` when the user has chosen to trade a name into its results
 (its earnings failure becomes a "WAIVED by the user" note; say so at the top of
 the report), and `--reprice` on a run written while the market is open, which
 moves every must-fill sale to 0.5% under the live price in the orders file, the
