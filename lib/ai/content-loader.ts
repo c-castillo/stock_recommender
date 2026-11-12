@@ -257,7 +257,7 @@ export function renderMediaDigestBlock(
 
 // ── ADD ledger ────────────────────────────────────────────────────────
 
-/** An ADD older than this without a refresh from the main analyst is aging. */
+/** An ADD older than this, counted from its date on the row (the add, or the last thesis evidence the analyst re-dated it to), is aging. */
 const ADD_AGING_DAYS = 90;
 /** Live price this many times above/below the ledger entry = split or bad data. */
 const ENTRY_SANITY_RATIO = 3;
@@ -346,10 +346,10 @@ export function renderMainAnalystAddLedger(rows: LedgerRow[]): string {
     .join("\n");
   return (
     "\n## ★ ADD ledger — PERSISTED [HIGHEST PRIORITY]\n" +
-    "Each row was added by the main analyst. Apply the playbook's ADD LIFECYCLE by the Status column:\n" +
+    "Each row was added by the main analyst: it says WHICH name and WHY. WHEN to buy, re-buy, trim or sell is decided on the four reads of the playbook's THE AGENT DECIDES, never on a wait for his next message. Apply the ADD LIFECYCLE by the Status column:\n" +
     aliasLine() +
     "- ACTIVE: live [★ MAIN ANALYST ADD] — BUY or HOLD, never a full SELL; a concentration trim is allowed.\n" +
-    "- AGING (>90d, no refresh): still blocks a full SELL, confidence capped at 70.\n" +
+    "- AGING (>90d since the add or the last thesis evidence dated on the row): still blocks a full SELL, confidence capped at 70.\n" +
     "- EXPIRED (aging AND MM200 falling): no override — ordinary rules, including SELL.\n" +
     "- INVALIDATED (live below the Invalidation level): thesis broken — SELL is allowed; " +
     "if the level was stated as a weekly close, say whether the break has held on a closing basis.\n" +

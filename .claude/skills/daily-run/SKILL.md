@@ -113,10 +113,12 @@ Then, what the script cannot judge:
 - **A stop that filled.** When the orders status shows a filled stop that
   closed a position which is an ACTIVE or AGING ADD, write it on the ledger row:
   `record_main_analyst_add` with the ticker, the row's own `addedOn` (so the
-  date does not move) and its note plus "STOPPED OUT <date> at <price>; not
-  re-bought until the main analyst refreshes the ADD or price closes back above
-  <stop>". Do not deactivate the row: only a SELL from the main analyst or an
-  exited EXPIRED/INVALIDATED row is deactivated.
+  date does not move) and its note plus "STOPPED OUT <date> at <price> (<qty>
+  sh bought at <price>, stop <stop>)". The note is the record the analyst
+  learns from; it sets no condition. The name comes back on its own merits
+  (the playbook's THE WHIPSAW, then a TECHNICAL BUY), never on a message from
+  the main analyst. Do not deactivate the row: only a SELL from the main
+  analyst or an exited EXPIRED/INVALIDATED row is deactivated.
 - **Cash that moved with no trade**, with the claude.ai Zesty connector,
   read-only tools only (load them with ToolSearch; if the connector is missing,
   skip this and say so): `get_dividends`, then `get_movements`. And always
@@ -280,9 +282,9 @@ python3 scripts/publish-check.py TODAY --publish  # checks, backup, publish, ver
 The checks, the same every day: the shape of every row; each BUY's and held
 SELL's entry price within 2% of the market; shares × price against the stated
 $; no sale for more shares than are held and buys that fit in buying power;
-every held ticker has a row; no BUY (new or an add) within five sessions of
-its own results and no discretionary SELL within three (fired stops and
-must-fill rule sales still go); no BUY that loses more than the risk budget at its stop; no
+every held ticker has a row; no discretionary SELL within three sessions of
+its own results (fired stops and must-fill rule sales still go; a BUY is not
+blocked by a results date); no BUY that loses more than the risk budget at its stop; no
 BUY (an ADD included) of a name that is not above its 50-day average with a
 rising 200-day (OWN TREND; `chart-read.py` prints the reading); no
 BUY of a leveraged long fund, no new stop more than 10% under its entry, and
@@ -291,7 +293,7 @@ ADD, trimmed); the orders file agrees with the order rows, and a must-fill sale 
 the market.
 
 Two options, for what is the user's call or a moving market rather than a
-slip: `--waive=NOK` when the user has chosen to trade a name into its results
+slip: `--waive=NOK` when the user has chosen to sell a name into its results
 (its earnings failure becomes a "WAIVED by the user" note; say so at the top of
 the report), and `--reprice` on a run written while the market is open, which
 moves every must-fill sale to 0.5% under the live price in the orders file, the
@@ -299,7 +301,7 @@ rows and the report before checking.
 
 Run it without `--publish` first. On `FAIL`, fix what is a slip of shape or
 arithmetic in the JSON yourself and run it again; anything else (a price that
-is off, a buy into results, a size over the risk budget) goes back to the user:
+is off, a discretionary sale into results, a size over the risk budget) goes back to the user:
 stop and ask instead of publishing. Unattended, do not publish: notify with the
 failed check and end the run.
 

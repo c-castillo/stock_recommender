@@ -134,8 +134,9 @@ you commit to it. Precision matters more than speed here.
   the names the last report wanted to buy. A held name that moved more than
   5% gets its headline cited; a print inside ten trading days goes in the row.
   For a BUY of a ticker the file does not cover, run
-  `python3 scripts/events.py --no-news TICKER` before you issue it: a BUY with
-  no results date checked fails the publish check.
+  `python3 scripts/events.py --no-news TICKER` so the row can state its date.
+  A results date does not block a BUY (the user dropped that rule on
+  2026-11-11); it still blocks a discretionary SELL within three sessions.
 
 The caller may also ask for an orders file (`<date>.orders.json`): the report's
 orders and the stops to place, as data, so they can be previewed at the broker
@@ -180,16 +181,19 @@ produced nothing. So:
 ## When the chart leg is missing, read the chart yourself
 
 A name must not stay on the watchlist as "missing leg: a chart reading" when
-you can produce that reading. Do it for every ticker that has a dated report
-leg from this session (or a main-analyst mention) and no chart of its own in the
-digests — at most six per run, the ones closest to a BUY first. Skip names
+you can produce that reading. Do it for every ticker that passes OWN TREND or
+is within 5% of passing it (or has a main-analyst mention or a dated report
+this session) and no chart of its own in the digests — at most six per run,
+the ones closest to a BUY first. Skip names
 that already fail on something else (a falling MA200, a capped sub-sector).
 
-1. Load `technical-analysis` and `fibonacci-charts` with the Skill tool, once
-   per run.
+1. Load `technical-analysis`, `fibonacci-charts` and `demark-charts` with the
+   Skill tool, once per run.
 2. `python3 scripts/chart-read.py T1 T2 …` — all tickers in ONE call. It
    prints the 21/55/144/200-day averages with their direction, momentum on
-   three horizons, the weekly swing pivots and the last ten weekly bars.
+   three horizons, the weekly swing pivots, the last ten weekly bars and the
+   TD Sequential counts on daily and weekly bars (running setup, last
+   completed 9 with its perfection, TDST and risk level, and the countdown).
    TradingView's `multi_timeframe_analysis` is optional on top of it, for the
    weekly/daily alignment; it has no bars, so it cannot give pivots or
    Fibonacci levels.
@@ -201,9 +205,10 @@ that already fail on something else (a falling MA200, a capped sub-sector).
    double top; state the scale (arithmetic).
 4. Write it in the 🔍 entry as your own reading, dated, labelled "own chart
    read (Yahoo bars)", never as something the group posted: trend, the
-   averages, the nearest Fibonacci level and the confluence, and one verdict:
+   averages, the nearest Fibonacci level and the confluence, the DeMark
+   counts on daily and weekly bars, and one verdict:
    chart leg present, present but not at an entry, or fails.
-5. Then decide the call. Present and at an entry completes the RESEARCH BUY.
+5. Then decide the call. Present and at an entry completes the TECHNICAL BUY.
    Present but not at an entry stays HOLD (watchlist) with the level that
    would trigger it and the order pre-sized. Fails stays on the watchlist with
    the level that would repair it. An own read never creates an ADD and never
@@ -234,17 +239,35 @@ price.
   he adds one by voice, image or chat rather than `+TICKER`, persist it with
   `record_main_analyst_add`, with `invalidation` if he named a level — editing a past
   report does nothing, the ledger is what gets injected into every future run.
-- **A new position does not need a main analyst ADD.** The playbook's RESEARCH BUY is
-  the second buy signal: a dated bullish report from this session (broker
-  note, print, argued thesis) plus chart confirmation (rising MA200, uptrend,
-  RRG Leading or Improving). When both hold, be bold: recommend opening it as
-  a BUY with shares and $ at the live price, at the low end of the size range,
-  with a stop under the level that breaks the setup, and the trim that funds
-  it if concentration needs one. Don't leave it as "HOLD (watch)" for lack of
-  an ADD. It never goes in the ledger (`record_main_analyst_add` is for the main analyst only)
-  and gets no MA200 override. Before relying on a note the digester read only
-  in its first pages, open the PDF and read the pages the call depends on —
-  this counts toward your extra lookups.
+- **You decide; nothing waits for the main analyst's next message.** He posts
+  theses, charts and reports, rarely a trading signal, and his follow-ups are
+  often implicit ("gran semana", a table or gif of names with a good day,
+  month or year). Per the playbook's THE AGENT DECIDES, an ADD says which
+  name and why; when to buy, re-buy after a stop, hold, trim or sell is your
+  call each session, on four reads: reports (broker and research notes with
+  a thesis and a target price, desk notes and ideas PDFs that name the
+  ticker), the technical read (trend, Fibonacci, DeMark), macro and sector,
+  and the record (the scorecard's trade journal, the stop-outs on the ledger
+  row, your prior verdicts as lessons, never as sources). Never write "until
+  the main analyst refreshes" as a blocker: name the read that is missing
+  and the close, count or print that would repair it. Cite an implicit
+  confirmation as thesis evidence with its date, and re-date an aging row
+  with `record_main_analyst_add` when the session carries one.
+- **A new position needs neither a main analyst ADD nor a bullish report.** The
+  playbook's TECHNICAL BUY is the second buy signal (the user's rule of
+  2026-11-11): a name that passes the rules (OWN TREND, CONFIRM while it
+  applies, the risk budget, the caps) and the technical read — the
+  `technical-analysis` frame, a Fibonacci level it holds above, and no bearish
+  DeMark exhaustion against the entry. When they hold, be bold: recommend
+  opening it as a BUY with shares and $ at the live price, at the low end of
+  the size range, with a stop under the level that breaks the setup, and the
+  trim that funds it if concentration needs one. Don't leave it as "HOLD
+  (watch)" for lack of an ADD or a report. A dated bullish report is
+  supporting evidence that raises confidence; before relying on a note the
+  digester read only in its first pages, open the PDF and read the pages the
+  call depends on (this counts toward your extra lookups). It never goes in
+  the ledger (`record_main_analyst_add` is for the main analyst only) and
+  gets no MA200 override.
 - **You are not writing to the app's stores.** The caller publishes your
   report and JSON (`/daily-run` step 5), which updates the stored
   recommendations, the dashboard's narrative and the per-ticker wiki. From

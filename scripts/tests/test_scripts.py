@@ -193,15 +193,22 @@ class PublishChecks(unittest.TestCase):
     def test_earnings(self):
         today = dt.date(2026, 10, 14)  # a Wednesday
         self.assertEqual(publish.sessions_until(dt.date(2026, 10, 19), today), 3)  # Thu, Fri, Mon
-        bad, _ = publish.check_earnings([self.rec()], {}, {"MRVL": dt.date(2026, 10, 19)}, today)
-        self.assertEqual(len(bad), 1)
-        bad, notes = publish.check_earnings([self.rec()], {}, {"MRVL": dt.date(2026, 10, 27)}, today)
+        bad, notes = publish.check_earnings([self.rec()], {}, {"MRVL": (dt.date(2026, 10, 19), "after the close", None)}, today)
+        self.assertEqual(bad, [])  # a BUY is not blocked by its results date
+        self.assertIn("3 sessions away", notes[0])
+        bad, notes = publish.check_earnings([self.rec()], {}, {"MRVL": (dt.date(2026, 10, 27), "after the close", None)}, today)
         self.assertEqual(bad, [])
         self.assertIn("9 sessions away", notes[0])
-        bad, notes = publish.check_earnings([self.rec()], {"MRVL": 6}, {"MRVL": dt.date(2026, 10, 15)}, today)
-        self.assertEqual(bad, [])  # adding to a held name is the analyst's call, flagged not failed
-        bad, _ = publish.check_earnings([self.rec()], {}, None, today)
-        self.assertEqual(len(bad), 1)  # a calendar that could not be read is not a pass
+        bad, notes = publish.check_earnings([self.rec()], {"MRVL": 6}, {"MRVL": (dt.date(2026, 10, 15), "after the close", None)}, today)
+        self.assertEqual(bad, [])
+        bad, notes = publish.check_earnings([self.rec()], {}, None, today)
+        self.assertEqual(bad, [])  # an unread calendar does not block a BUY; it is noted
+        self.assertEqual(len(notes), 1)
+        sale = [{"ticker": "MRVL", "side": "sell", "type": "limit"}]
+        bad, _ = publish.check_earnings([], {"MRVL": 6}, {"MRVL": (dt.date(2026, 10, 19), "after the close", None)}, today, sale)
+        self.assertEqual(len(bad), 1)  # a discretionary sale 3 sessions before the print still fails
+        bad, _ = publish.check_earnings([], {"MRVL": 6}, None, today, sale)
+        self.assertEqual(len(bad), 1)  # and cannot pass on a calendar that could not be read
         self.assertEqual(publish.check_earnings([self.rec(action="HOLD", reasoning="HOLD")], {}, None, today), ([], []))
 
     def test_risk(self):

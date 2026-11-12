@@ -13,10 +13,9 @@ same every night, which is the point of having them in a script:
   amounts    shares × price matches the $ the order states, within 2%
   book       no sale for more shares than are held; buys fit in buying power;
              every held ticker has a row
-  earnings   no BUY (new or an add) of a name whose results fall within five
-             sessions, no discretionary SELL within three (a fired stop or a
-             must-fill rule sale still goes), and no BUY of a company with no
-             date checked at all
+  earnings   no discretionary SELL of a name whose results fall within three
+             sessions (a fired stop or a must-fill rule sale still goes). A BUY
+             is not blocked by a results date: its date is printed as a note
   risk       no BUY loses more than the risk budget between its entry and its stop
   trend      no BUY (an ADD included) of a name whose last close is not above its
              50-day average or whose 200-day average is not rising (OWN TREND)
@@ -27,7 +26,7 @@ same every night, which is the point of having them in a script:
              priced to fill
 
 Options:
-  --waive=NOK,SMCI  the user chose to trade these into their results: their earnings
+  --waive=NOK,SMCI  the user chose to sell these into their results: their earnings
                     failures become notes, and the run says so in the report
   --waive-price=KORU  the user chose to buy these at a limit priced off the pre-market
                     print: their price, amount and stop-cap failures, measured from
@@ -46,7 +45,7 @@ import os
 import re
 import sys
 
-from marketdata import Closes, HEDGES, REPORTS, RISK_PER_POSITION, ROOT, api, load
+from marketdata import Closes, HEDGES, REPORTS, RISK_PER_POSITION, ROOT, UNDERLYING, api, load
 
 HELD_ROW = re.compile(r"^HOLD\s+[\d,.]+\s*sh\s*=\s*\$")
 MONEY = re.compile(r"\$\s*([\d,]+(?:\.\d+)?)")
@@ -157,9 +156,9 @@ def sessions_until(day, today):
     return n
 
 
-# NO TRADE INTO ITS OWN RESULTS (the playbook): no BUY of any kind in the five
-# sessions before a print, and no discretionary SELL in the three before it.
-NO_BUY_SESSIONS = 5
+# NO SALE INTO ITS OWN RESULTS (the playbook): no discretionary SELL in the three
+# sessions before a print. A BUY is not blocked (the user dropped that half on
+# 2026-11-11); its results date is only reported.
 NO_SALE_SESSIONS = 3
 
 
@@ -177,7 +176,11 @@ def check_earnings(recs, held, calendar, today, orders=()):
     if not buys and not sales:
         return bad, notes
     if calendar is None:
-        return ["the earnings calendar could not be read: a BUY or a discretionary SELL cannot be checked against its results date"], notes
+        if sales:
+            bad.append("the earnings calendar could not be read: a discretionary SELL cannot be checked against its results date")
+        if buys:
+            notes.append("the earnings calendar could not be read: results dates of the BUYs unknown (" + ", ".join(buys) + ")")
+        return bad, notes
 
     def ahead(t):
         """Sessions to a print that is not out yet, or None when there is none to wait for."""
@@ -196,9 +199,6 @@ def check_earnings(recs, held, calendar, today, orders=()):
             notes.append(f"{t}: no results in the next 21 days")
         elif away is None:
             notes.append(f"{t}: results out before today's open ({day:%a %d-%m})")
-        elif away <= NO_BUY_SESSIONS:
-            kind = "adds to the position" if t in held else "opens a position"
-            bad.append(f"{t}: BUY {kind} {away} session(s) before its results on {day:%a %d-%m}; no BUY until the print is out")
         else:
             notes.append(f"{t}: results on {day:%a %d-%m}, {away} sessions away")
     for t in sales:
@@ -231,7 +231,9 @@ def check_risk(recs, total):
 def check_trend(recs, bars):
     """OWN TREND: every BUY order's name closed above its 50-day average and has a
     rising 200-day. `bars` is {ticker: {iso date: close}}; a name with no bars, or
-    too few for a 200-day slope, is not a pass."""
+    too few for a 200-day slope, is not a pass. A young US listing of a foreign
+    stock (UNDERLYING) takes the 200-day slope from the original share, whose
+    bars are in `bars` under the original's symbol; its 50-day is its own."""
     bad = []
     for r in recs:
         m = ORDER.match(r.get("reasoning") or "")
@@ -240,10 +242,14 @@ def check_trend(recs, bars):
             continue
         b = bars.get(t) or {}
         c = [b[d] for d in sorted(b)]
-        if len(c) < TREND_BARS:
-            bad.append(f"{t}: BUY with {len(c)} sessions of history, under the {TREND_BARS} a 200-day slope needs (OWN TREND)")
+        long = c  # the series the 200-day slope is read from
+        if len(c) < TREND_BARS and t in UNDERLYING and len(c) >= 50:
+            u = bars.get(UNDERLYING[t]) or {}
+            long = [u[d] for d in sorted(u)]
+        if len(long) < TREND_BARS:
+            bad.append(f"{t}: BUY with {len(long)} sessions of history, under the {TREND_BARS} a 200-day slope needs (OWN TREND)")
             continue
-        m50, m200, was = sum(c[-50:]) / 50, sum(c[-200:]) / 200, sum(c[-220:-20]) / 200
+        m50, m200, was = sum(c[-50:]) / 50, sum(long[-200:]) / 200, sum(long[-220:-20]) / 200
         if c[-1] <= m50:
             bad.append(f"{t}: BUY with the close ${c[-1]:,.2f} not above its 50-day ${m50:,.2f} (OWN TREND)")
         if m200 <= was:
@@ -359,6 +365,9 @@ def trend_bars(recs):
         return {}
     closes = Closes("2y")
     out = {t: closes.of(t) for t in want}
+    for t in want:  # the original share of a listing too young for a 200-day
+        if t in UNDERLYING and len(out[t]) < TREND_BARS:
+            out[UNDERLYING[t]] = closes.of(UNDERLYING[t])
     closes.save()
     return out
 

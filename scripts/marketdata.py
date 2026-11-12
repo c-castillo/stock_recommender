@@ -22,6 +22,10 @@ COMMISSION_PC = 0.003
 CASH_APR = 0.035
 RISK_PER_POSITION = 0.0075
 BASE = os.environ.get("DASHBOARD_URL", "http://localhost:3000")
+# A US listing of a foreign stock that is too young to have a 200-day average
+# takes the slope of that average from the original share (in its own
+# currency). Keep in step with lib/ma200.ts.
+UNDERLYING = {"SKHY": "000660.KS"}  # SK hynix, Korea Exchange
 HEDGES = {"SSG", "SOXS", "PSQ", "QID", "SQQQ", "SH", "SDS", "BITI", "SEF", "ERY"}
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/126 Safari/537.36"
 

@@ -226,8 +226,8 @@ def event_tickers(book):
     except Exception:
         pass
     tickers += [o["ticker"] for o in (book.get("orders") or {}).get("open", [])]
-    # The names the last report wanted to buy or was watching to buy: a new
-    # position must not be opened into its own results without knowing it.
+    # The names the last report wanted to buy or was watching to buy: their
+    # rows state the results date (it no longer blocks a BUY, only a sale).
     prev = report_files(".json")
     if prev:
         tickers += [r["ticker"] for r in load(prev[-1], {}).get("recommendations", []) if r.get("action") == "BUY"]

@@ -5,6 +5,30 @@
  * Positive → upward slope (demand > supply).
  * Negative → downward slope (supply > demand).
  */
+/**
+ * A US listing of a foreign stock that is too young to have a 200-day average
+ * takes its slope from the original share. Keep in step with
+ * scripts/marketdata.py (UNDERLYING).
+ */
+export const UNDERLYING: Record<string, string> = {
+  SKHY: "000660.KS", // SK hynix, Korea Exchange
+};
+
+async function dailyCloses(ticker: string): Promise<number[]> {
+  const url =
+    `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}` +
+    `?interval=1d&range=14mo`;
+  const res = await fetch(url, {
+    headers: { "User-Agent": "Mozilla/5.0" },
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  const closes: (number | null)[] =
+    data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? [];
+  return closes.filter((c): c is number => c != null && isFinite(c));
+}
+
 export async function fetchMa200Slopes(
   tickers: string[]
 ): Promise<Record<string, number | null>> {
@@ -14,20 +38,10 @@ export async function fetchMa200Slopes(
   await Promise.all(
     tickers.map(async (ticker) => {
       try {
-        const url =
-          `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}` +
-          `?interval=1d&range=14mo`;
-        const res = await fetch(url, {
-          headers: { "User-Agent": "Mozilla/5.0" },
-          signal: AbortSignal.timeout(8000),
-        });
-        if (!res.ok) return;
-
-        const data = await res.json();
-        const closes: (number | null)[] =
-          data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? [];
-
-        const valid = closes.filter((c): c is number => c != null && isFinite(c));
+        let valid = await dailyCloses(ticker);
+        if (valid.length < 220 && UNDERLYING[ticker]) {
+          valid = await dailyCloses(UNDERLYING[ticker]);
+        }
 
         // Need ≥220 points: 200 for today's MA + 20 offset for the prior MA
         if (valid.length < 220) return;

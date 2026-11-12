@@ -9,8 +9,8 @@ days (one request per day, whatever the number of tickers), so a print inside
 the window is known before it happens. Headlines: Google News, last three
 days, at most four per ticker. No key, no model call.
 
-A headline is a pointer, not a report: it says why a stock moved, it does not
-qualify a RESEARCH BUY. Company names for the search come from the newest
+A headline is a pointer, not a report: it says why a stock moved, it is not
+evidence for a BUY. Company names for the search come from the newest
 report's JSON when the ticker is in it.
 """
 import datetime as dt
