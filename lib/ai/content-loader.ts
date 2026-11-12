@@ -18,6 +18,8 @@ import {
 } from "@/lib/whatsapp/db";
 import { fetchCurrentPrices } from "@/lib/market/quotes";
 import { fetchMa200Slopes } from "@/lib/ma200";
+import type { ReportIdea } from "@/lib/ai/media-prompts";
+import { isLocalListing, normalizeIdeas } from "@/lib/market/tickers";
 
 // ── Limits ────────────────────────────────────────────────────────────────────
 
@@ -168,6 +170,49 @@ export interface MediaDigestRenderOptions {
   transcriptSince?: number;
 }
 
+/**
+ * The ideas of every report and PDF in the window, by ticker: the playbook's
+ * REPORTS read. It is never clipped, unlike a transcript, so a target on page
+ * 60 of a thematic note reaches the analyst.
+ */
+function renderIdeasIndex(ideas: (ReportIdea & { shared: string; group: string })[]): string {
+  if (ideas.length === 0) return "";
+  const dash = (v?: string) => (v && v !== "—" ? v : null);
+  // One symbol per company (KEPCO and 015760.KS are KEP), also for digests
+  // saved before the server normalised them. A local listing (005930.KS,
+  // AXIA3.SA) cannot be bought in this book: it gets a place in one compact
+  // line, not a line of its own.
+  const by = new Map<string, typeof ideas>();
+  const abroad: string[] = [];
+  for (const i of normalizeIdeas(ideas)) {
+    const t = i.ticker;
+    if (isLocalListing(t)) {
+      abroad.push(`${t} ${[dash(i.rating), dash(i.target)].filter(Boolean).join(" ")}`.trim());
+    } else {
+      by.set(t, [...(by.get(t) ?? []), i]);
+    }
+  }
+  let out =
+    `\n## Ideas in reports and PDFs, by ticker (${ideas.length} ideas, ${by.size} US-listed tickers) — the REPORTS read\n` +
+    "Each line is a view a report in the window gives on that ticker: house and the report's own date, " +
+    "rating, target, thesis, page. Cite it as report evidence with its date. An older idea is still the " +
+    "house's view until a newer one replaces it; it is not a signal to buy. The report is the PDF of that " +
+    "house and date in the list above, where its `▤` line says how much of it was read.\n";
+  for (const t of [...by.keys()].sort()) {
+    const lines = by.get(t)!.map(
+      (i) =>
+        `${[i.house, dash(i.date)].filter(Boolean).join(" ")}` +
+        `${dash(i.rating) ? ` · ${i.rating}` : ""}${dash(i.target) ? ` · target ${i.target}` : ""}` +
+        ` · ${i.thesis}${dash(i.page) ? ` (p. ${i.page})` : ""}`
+    );
+    out += lines.length === 1 ? `- ${t}: ${lines[0]}\n` : `- ${t}\n${lines.map((l) => `    • ${l}`).join("\n")}\n`;
+  }
+  if (abroad.length > 0) {
+    out += `- Local listings with a view (not buyable here; rating and target only): ${abroad.join("; ")}\n`;
+  }
+  return out;
+}
+
 /** Render the cached media digests (Stage 1 output) as a compact text section. */
 export function renderMediaDigestBlock(
   rows: MessageForAnalysis[],
@@ -180,6 +225,7 @@ export function renderMediaDigestBlock(
   let demarkSeen = 0;
   let fibSeen = 0;
   let transcriptsOmitted = 0;
+  const ideas: (ReportIdea & { shared: string; group: string })[] = [];
   for (const r of rows) {
     let d: {
       ticker?: string | null;
@@ -190,6 +236,11 @@ export function renderMediaDigestBlock(
       demark?: string;
       fibonacci?: string;
       transcript?: string;
+      ideas?: ReportIdea[];
+      pages_total?: number;
+      pages_read?: string;
+      full_read?: boolean;
+      notes_path?: string;
     };
     try {
       d = JSON.parse(r.media_digest!);
@@ -204,6 +255,18 @@ export function renderMediaDigestBlock(
     // DeMark counts get their own line rather than being folded into the
     // summary — the playbook treats them as a named setup, and burying a
     // "Sell 13" inside prose is how it went unreported for months.
+    // How much of a PDF was read: the analyst must not take a summary of ten
+    // pages for the view of a hundred.
+    if (r.media_type === "document" && (d.pages_total || d.pages_read)) {
+      text +=
+        `    ▤ ${d.pages_total ? `${d.pages_total} pages` : "pages"} · ` +
+        `${d.full_read ? "READ IN FULL" : "NOT read in full"}${d.pages_read ? ` (${d.pages_read})` : ""}` +
+        `${d.notes_path ? ` · page notes: ${d.notes_path}` : ""}\n`;
+    }
+    for (const i of d.ideas ?? []) {
+      if (!i?.ticker) continue;
+      ideas.push({ ...i, shared: formatTs(r.ts), group: r.group_name ?? "" });
+    }
     if (d.demark && d.demark !== "—") {
       text += `    ★ DeMark: ${clampStudy(d.demark)}\n`;
       demarkSeen++;
@@ -233,6 +296,7 @@ export function renderMediaDigestBlock(
       `\n> ${transcriptsOmitted} older file(s) above have a verbatim transcript that is not printed ` +
       "here (summary only). Call `media_digests` with the wider window if you need the exact text.\n";
   }
+  text += renderIdeasIndex(ideas);
   if (fibSeen > 0) {
     text +=
       `\n> ${fibSeen} chart(s) above carry Fibonacci levels (◈ lines). Fibonacci is the ` +

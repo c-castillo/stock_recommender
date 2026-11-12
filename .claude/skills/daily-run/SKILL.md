@@ -135,8 +135,9 @@ Then, what the script cannot judge:
 
 ## 4. Prepare the corpus, then analyse
 
-Two agents, in order. The digester marks off-topic chatter and reads the
-images, so the analyst's context holds neither.
+Three kinds of agent, in order: the digester, a reader for each long report,
+then the analyst. The digester marks off-topic chatter and reads the images,
+so the analyst's context holds neither.
 
 **If an agent dies on a usage limit, do not resume it.** A resumed agent
 re-sends its whole context uncached and usually dies again on the next turn.
@@ -155,6 +156,37 @@ skills loaded, newspapers discarded, unreadable files. The noise pass only marks
 unclassified messages are treated as relevant, so the cost is a noisier bundle,
 not a wrong one.
 
+### 4a-bis. `report-reader` for each long report (Sonnet at medium effort)
+
+A PDF of more than 25 pages does not fit beside 29 other files: its chart and
+table pages are read as images, and a 100-page note is a whole run. The
+digester leaves those pending. Reports and ideas PDFs are one of the four
+reads the playbook decides on, so they are read in full here:
+
+```
+python3 scripts/mcp-call.py long_reports '{"days": N}'    # N = fullDetailDays
+```
+
+(or the `long_reports` MCP tool when this session has it). For each report it
+prints the runs it needs: one, or one per 60 pages plus a run that assembles
+them. Start a `report-reader` agent per bullet, with the bullet as the whole
+prompt. Different reports, and the parts of one report, run in parallel (at
+most four agents at a time); an `Assemble` run starts only when every part of
+its report has finished. If this session has no `report-reader` agent type
+(it was added after the session started), use a `general-purpose` agent whose
+prompt is "Follow `.claude/agents/report-reader.md` exactly. Your job: <the
+bullet>".
+
+Call `long_reports` again when they finish: a report still listed was not
+read in full. Start a NEW run for it once (never resume one that died on a
+usage limit); if it is still listed after that, go on and tell the analyst
+which report and which pages are unread. Keep each reader's report: pages
+read, ideas saved, pages left.
+
+A run costs about as much as the whole batch pass, so a day with three long
+reports adds several runs. That is the price of reading them; do not skip
+this step to save time. Unattended, it runs the same way.
+
 ### 4b. `stock-analyst` (Opus at high effort)
 
 Fill the prompt from the preflight's last lines and from `TODAY.run.json`:
@@ -170,7 +202,9 @@ TODAY, DEPTH, PREV and `N` (`fullDetailDays`).
 > performance-anchor warning; or "the Zesty login failed: the book is the last
 > successful sync">. Open orders at Zesty: <the preflight's resting stops and
 > open buys and sells; or "none">. Buying power: <buying_power>.
-> Media notes from the digester: <unreadable files, reports not covered in full>.
+> Media notes from the digester and the report readers: <unreadable files;
+> long reports read in full today, with their idea counts; any report or
+> pages NOT read>.
 > The previous report is PREV. Read these three before you write <or: which
 > one is missing>: `.whatsapp/reports/TODAY.orders-status.md` (what became of
 > PREV's orders, from the broker), `.whatsapp/reports/TODAY.scorecard.md` and
@@ -434,6 +468,8 @@ at the run that sees it, with its own approval.
 - Noise pass: messages classified and marked as noise.
 - Files digested, chart skills loaded (flag it if charts were digested without
   `technical-analysis`), newspapers discarded, and anything left undigested.
+- Long reports: each one read in full (pages, ideas saved), and any report or
+  pages left unread.
 - The depth of the report, and the scorecard's two lines.
 - The 🩺 Portfolio health section, with the stops that are not resting at Zesty
   and the order to place for each.

@@ -68,7 +68,54 @@ export const digestSchema = z.object({
     ),
 });
 
-export type MediaDigest = z.infer<typeof digestSchema> & { transcript?: string };
+/**
+ * What a report or PDF adds to a digest. Kept apart from `digestSchema`, which
+ * the in-app (API key) digester sends to the model as its output shape: these
+ * are filled only by the chat-client agents, through `save_media_digest`.
+ */
+export const reportSchema = z.object({
+  ideas: z
+    .array(
+      z.object({
+        ticker: z.string().describe("The ticker the idea is about (US listing when there is one)"),
+        house: z.string().describe("Who says it: GS, MS, JPM, a desk, a member"),
+        date: z.string().describe("The report's own date, dd-mm"),
+        rating: z.string().describe("Buy / Overweight / Sell / top pick / short … or '—'"),
+        target: z.string().describe("Price target with its currency and horizon, or '—'"),
+        thesis: z.string().describe("The thesis in one line, with its key figure"),
+        page: z.string().describe("Page(s) of the PDF it is on, or '—'"),
+      })
+    )
+    .optional()
+    .describe(
+      "One entry per ticker the report or PDF gives a view on: a rating, a target " +
+        "price, a place on a preference or ideas list, a thesis. A ticker merely " +
+        "mentioned in passing is not an idea."
+    ),
+  pages_total: z.number().int().optional().describe("PDF page count (pdfinfo)"),
+  pages_read: z
+    .string()
+    .optional()
+    .describe("Pages read as content, and those skipped as boilerplate: 'read 1-82; skipped 83-93 (disclosures)'"),
+  full_read: z
+    .boolean()
+    .optional()
+    .describe("true when every content page was read (text, and the chart/table pages as images)"),
+  notes_path: z
+    .string()
+    .optional()
+    .describe("Absolute path of the page-by-page notes file written while reading a long report"),
+});
+
+export type ReportIdea = NonNullable<z.infer<typeof reportSchema>["ideas"]>[number];
+
+/** A PDF with more pages than this is read by its own agent, not in the batch pass. */
+export const LONG_REPORT_PAGES = 25;
+/** A dedicated reader takes at most this many pages; a longer report is read in parts. */
+export const REPORT_PART_PAGES = 60;
+
+export type MediaDigest = z.infer<typeof digestSchema> &
+  z.infer<typeof reportSchema> & { transcript?: string };
 
 export const PROMPT =
   "You are digesting a single piece of media shared in a stock-trading WhatsApp " +

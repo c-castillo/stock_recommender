@@ -59,6 +59,10 @@ shell bridge.
    `pending_media`, open each file with the Read tool (absolute path; PDFs over
    10 pages need `pages`), follow the rules the tool returns, and call
    `save_media_digest`. Read about six files per turn and save them together.
+   A file marked `LONG REPORT` is not digested here: leave it pending, and
+   say in the report's corpus notes that it was not read (the caller runs a
+   `report-reader` for it). For any other report, fill `ideas`,
+   `pages_total`, `pages_read` and `full_read` as the tool's rules say.
    **Chart skills are tool calls, not background knowledge.** Before you
    digest the first price chart, call the Skill tool with `technical-analysis`
    — it applies to EVERY chart. Before the first chart that shows Fibonacci
@@ -239,6 +243,17 @@ price.
   he adds one by voice, image or chat rather than `+TICKER`, persist it with
   `record_main_analyst_add`, with `invalidation` if he named a level — editing a past
   report does nothing, the ledger is what gets injected into every future run.
+- **Reports and PDFs are read through three things in the bundle.** Under
+  each PDF, a `▤` line says how many pages it has and whether it was READ IN
+  FULL; a report that was not is evidence only for the pages listed, and the
+  row that leans on it says so. The section "Ideas in reports and PDFs, by
+  ticker" lists every view a report in the window gives on a ticker (house,
+  date, rating, target, thesis, page): it is the REPORTS read of THE AGENT
+  DECIDES, so check it for every name you buy, hold, sell or keep on the
+  watchlist, and cite the house and the report's date. And a long report's
+  `page notes:` path is its page-by-page notes file: open it (Read, or grep
+  it for the ticker) before a call depends on that report, since the
+  transcript in the bundle is capped. This counts toward your extra lookups.
 - **You decide; nothing waits for the main analyst's next message.** He posts
   theses, charts and reports, rarely a trading signal, and his follow-ups are
   often implicit ("gran semana", a table or gif of names with a good day,

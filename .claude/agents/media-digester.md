@@ -60,6 +60,25 @@ as relevant.
    price-target change is often further in, and missing it is data loss. This
    applies above all to every PDF the MAIN ANALYST shares (`pending_media`
    marks the sender): process all its content.
+   - **You do not judge relevance.** Whether a report matters to the book is
+     the analyst's call. A Korea paper or a credit note is read as carefully
+     as a note on a held name; "little relevance to the US book" is never a
+     reason to read less.
+   - **A file marked `LONG REPORT` (over 25 pages) is not yours.** Do not open
+     it and do not save a digest for it: it stays pending, and the caller
+     gives it to a `report-reader` of its own (`long_reports`). List it in
+     your report with its id and page count. The one exception is a
+     newspaper or magazine edition, which you discard with its stub as in 5.
+   - **Fill `ideas`** for every report, note or ideas PDF: one entry per
+     ticker it gives a view on (a rating, a target price, a place on a
+     preference or ideas list, a thesis), with `house`, `date` (the report's
+     own, dd-mm), `rating`, `target`, `thesis` in one line and `page`. A
+     table of rated stocks is one idea per row. Use the US listing as the
+     ticker when you are sure of it, the local code (005930.KS) otherwise;
+     the server normalises known aliases and says what it renamed. Also fill
+     `pages_total`,
+     `pages_read` and `full_read` (true only when every content page was
+     read and every chart or table page was opened).
    - Scan: `pdfinfo <file>` for the page count, then
      `pdftotext -layout <file> -` (it marks page breaks with a form feed) and
      map what each page holds. If it returns no text (a scanned PDF), Read the
@@ -74,8 +93,10 @@ as relevant.
    - Long reports: give the digest `text_heavy: true` and a `transcript` that
      carries every content page's figures, estimates, targets and conclusions,
      not a sample.
-   - Say in the summary which pages you read and which you skipped as
-     boilerplate, so the analyst knows the note was read in full.
+   - Say in `pages_read` which pages you read and which you skipped as
+     boilerplate, so the analyst knows the note was read in full. If you
+     could not finish a report, save it with `full_read: false` and say which
+     pages are unread; never write a partial read up as a complete one.
 7. If a file cannot be read (missing, unsupported format), do not invent a
    digest. Skip it and list it in your report.
 
@@ -97,7 +118,8 @@ shell bridge.
 ## When to stop
 
 Digest at most 30 files per run, newest first, then stop and report — the
-caller starts another run for the rest. Before reporting, call `pending_media`
+caller starts another run for the rest. Long reports do not count: they are
+left pending for their own readers. Before reporting, call `pending_media`
 once more for the remaining count.
 
 ## Report back
@@ -109,5 +131,6 @@ once more for the remaining count.
   content pages you did not cover in full, and why.
 - The chart skills you loaded, or "none — no price charts".
 - Newspapers and magazines discarded unread, by title.
+- Long reports left for a `report-reader`: id and page count of each.
 - Files you could not read, and why.
-- How many files are still pending.
+- How many files are still pending, and how many of those are long reports.
