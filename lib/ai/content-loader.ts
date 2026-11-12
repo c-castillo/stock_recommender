@@ -15,6 +15,7 @@ import {
   listActiveMainAnalystAdds,
   type MainAnalystAddEntry,
   type MessageForAnalysis,
+  getDigestsWithIdeas,
 } from "@/lib/whatsapp/db";
 import { fetchCurrentPrices } from "@/lib/market/quotes";
 import { fetchMa200Slopes } from "@/lib/ma200";
@@ -168,21 +169,47 @@ export interface MediaDigestRenderOptions {
    * 7-day bundle (200K of 446K characters on 2026-09-30).
    */
   transcriptSince?: number;
+  /**
+   * Digests older than `rows` whose ideas still belong in the index
+   * (`loadOlderIdeaRows`). Only their ideas are printed, never their text.
+   */
+  olderIdeaRows?: MessageForAnalysis[];
+}
+
+/** How far back the ideas index looks, whatever the bundle's own window is. */
+export const IDEAS_WINDOW_DAYS = 30;
+
+type IndexedIdea = ReportIdea & { ts: number; old: boolean };
+
+/**
+ * Digests with ideas that are older than the bundle's window and inside the
+ * ideas window: their PDFs are not in the media list, but their ideas are
+ * still the houses' views.
+ */
+export function loadOlderIdeaRows(windowDays: number): MessageForAnalysis[] {
+  if (windowDays >= IDEAS_WINDOW_DAYS) return [];
+  const cutoff = Math.floor(Date.now() / 1000) - windowDays * 86400;
+  return getDigestsWithIdeas(IDEAS_WINDOW_DAYS).filter((r) => r.ts < cutoff);
+}
+
+function shortDate(ts: number): string {
+  const d = new Date(ts * 1000);
+  return `${String(d.getDate()).padStart(2, "0")}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
 /**
- * The ideas of every report and PDF in the window, by ticker: the playbook's
- * REPORTS read. It is never clipped, unlike a transcript, so a target on page
- * 60 of a thematic note reaches the analyst.
+ * The ideas of every report and PDF of the last IDEAS_WINDOW_DAYS, by ticker:
+ * the playbook's REPORTS read. It is never clipped, unlike a transcript, so a
+ * target on page 60 of a thematic note reaches the analyst.
  */
-function renderIdeasIndex(ideas: (ReportIdea & { shared: string; group: string })[]): string {
+function renderIdeasIndex(ideas: IndexedIdea[], olderReports: string[]): string {
   if (ideas.length === 0) return "";
   const dash = (v?: string) => (v && v !== "—" ? v : null);
   // One symbol per company (KEPCO and 015760.KS are KEP), also for digests
   // saved before the server normalised them. A local listing (005930.KS,
   // AXIA3.SA) cannot be bought in this book: it gets a place in one compact
   // line, not a line of its own.
-  const by = new Map<string, typeof ideas>();
+  const by = new Map<string, IndexedIdea[]>();
   const abroad: string[] = [];
   for (const i of normalizeIdeas(ideas)) {
     const t = i.ticker;
@@ -193,22 +220,34 @@ function renderIdeasIndex(ideas: (ReportIdea & { shared: string; group: string }
     }
   }
   let out =
-    `\n## Ideas in reports and PDFs, by ticker (${ideas.length} ideas, ${by.size} US-listed tickers) — the REPORTS read\n` +
-    "Each line is a view a report in the window gives on that ticker: house and the report's own date, " +
-    "rating, target, thesis, page. Cite it as report evidence with its date. An older idea is still the " +
-    "house's view until a newer one replaces it; it is not a signal to buy. The report is the PDF of that " +
-    "house and date in the list above, where its `▤` line says how much of it was read.\n";
+    `\n## Ideas in reports and PDFs, by ticker (${ideas.length} ideas, ${by.size} US-listed tickers, ` +
+    `reports shared in the last ${IDEAS_WINDOW_DAYS} days) — the REPORTS read\n` +
+    "Each line is a view a report gives on that ticker: house and the report's own date, rating, target, " +
+    "thesis, page; newest first. Cite it as report evidence with its date. An older idea is still the " +
+    "house's view until a newer one replaces it; it is not a signal to buy, and a target set before a " +
+    "large move is stale: say so. The report is the PDF of that house and date in the list above, where " +
+    "its `▤` line says how much of it was read; a line ending in `◦` comes from a report shared before " +
+    "this bundle's window, listed under the index.\n";
   for (const t of [...by.keys()].sort()) {
-    const lines = by.get(t)!.map(
-      (i) =>
-        `${[i.house, dash(i.date)].filter(Boolean).join(" ")}` +
-        `${dash(i.rating) ? ` · ${i.rating}` : ""}${dash(i.target) ? ` · target ${i.target}` : ""}` +
-        ` · ${i.thesis}${dash(i.page) ? ` (p. ${i.page})` : ""}`
-    );
+    const lines = by
+      .get(t)!
+      .sort((a, b) => b.ts - a.ts)
+      .map(
+        (i) =>
+          `${[i.house, dash(i.date)].filter(Boolean).join(" ")}` +
+          `${dash(i.rating) ? ` · ${i.rating}` : ""}${dash(i.target) ? ` · target ${i.target}` : ""}` +
+          ` · ${i.thesis}${dash(i.page) ? ` (p. ${i.page})` : ""}${i.old ? ` ◦ shared ${shortDate(i.ts)}` : ""}`
+      );
     out += lines.length === 1 ? `- ${t}: ${lines[0]}\n` : `- ${t}\n${lines.map((l) => `    • ${l}`).join("\n")}\n`;
   }
   if (abroad.length > 0) {
     out += `- Local listings with a view (not buyable here; rating and target only): ${abroad.join("; ")}\n`;
+  }
+  if (olderReports.length > 0) {
+    out +=
+      `\nReports shared before this bundle's window whose ideas are marked \`◦\` above:\n` +
+      olderReports.map((l) => `- ${l}`).join("\n") +
+      "\n";
   }
   return out;
 }
@@ -225,7 +264,7 @@ export function renderMediaDigestBlock(
   let demarkSeen = 0;
   let fibSeen = 0;
   let transcriptsOmitted = 0;
-  const ideas: (ReportIdea & { shared: string; group: string })[] = [];
+  const ideas: IndexedIdea[] = [];
   for (const r of rows) {
     let d: {
       ticker?: string | null;
@@ -265,7 +304,7 @@ export function renderMediaDigestBlock(
     }
     for (const i of d.ideas ?? []) {
       if (!i?.ticker) continue;
-      ideas.push({ ...i, shared: formatTs(r.ts), group: r.group_name ?? "" });
+      ideas.push({ ...i, ts: r.ts, old: false });
     }
     if (d.demark && d.demark !== "—") {
       text += `    ★ DeMark: ${clampStudy(d.demark)}\n`;
@@ -296,7 +335,24 @@ export function renderMediaDigestBlock(
       `\n> ${transcriptsOmitted} older file(s) above have a verbatim transcript that is not printed ` +
       "here (summary only). Call `media_digests` with the wider window if you need the exact text.\n";
   }
-  text += renderIdeasIndex(ideas);
+  const olderReports: string[] = [];
+  for (const r of opts.olderIdeaRows ?? []) {
+    let d: { ideas?: ReportIdea[]; source?: string; pages_total?: number; full_read?: boolean; notes_path?: string };
+    try {
+      d = JSON.parse(r.media_digest!);
+    } catch {
+      continue;
+    }
+    const own = (d.ideas ?? []).filter((i) => i?.ticker);
+    if (own.length === 0) continue;
+    for (const i of own) ideas.push({ ...i, ts: r.ts, old: true });
+    olderReports.push(
+      `${(d.source ?? r.media_filename ?? "PDF").replace(/\s+/g, " ").slice(0, 110)} · shared ${shortDate(r.ts)} · ` +
+        `${d.pages_total ? `${d.pages_total} pages, ` : ""}${d.full_read ? "read in full" : "NOT read in full"} · ` +
+        `${own.length} idea(s)${d.notes_path ? ` · page notes: ${d.notes_path}` : ""}`
+    );
+  }
+  text += renderIdeasIndex(ideas, olderReports);
   if (fibSeen > 0) {
     text +=
       `\n> ${fibSeen} chart(s) above carry Fibonacci levels (◈ lines). Fibonacci is the ` +

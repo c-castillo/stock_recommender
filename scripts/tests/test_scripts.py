@@ -12,6 +12,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS = os.path.dirname(HERE)
 sys.path.insert(0, SCRIPTS)
 
+import levels  # noqa: E402
 import marketdata  # noqa: E402
 import orders  # noqa: E402
 import preflight  # noqa: E402
@@ -261,6 +262,55 @@ class StopParser(unittest.TestCase):
         self.assertEqual(level("$310 weekly close (the main analyst's invalidation); disaster stop $300.70"), 310.0)
         self.assertEqual(level("$1,087.98 close of 07-10"), 1087.98)
         self.assertIsNone(stop_check.LEVEL.search("Exit: two consecutive SMH closes above 600"))
+
+
+
+def _bars(path, start=dt.date(2025, 1, 6)):
+    """Weekday bars through the given (days, end price) legs, with a 2% daily range."""
+    out, price, day = [], path[0][1], start
+    for days, end in path:
+        step = (end - price) / days
+        for _ in range(days):
+            price += step
+            while day.weekday() > 4:
+                day += dt.timedelta(days=1)
+            out.append((day, price * 1.01, price * 0.99, price))
+            day += dt.timedelta(days=1)
+    return out
+
+
+class LevelsTests(unittest.TestCase):
+    def rows(self):  # a rise to 200, a pullback to 160, a recovery to 190
+        return _bars([(1, 100), (20, 90), (20, 100), (130, 200), (50, 160), (50, 190)])
+
+    def test_supports_are_under_the_close_and_nearest_first(self):
+        rows = self.rows()
+        sup = levels.supports(rows)
+        self.assertTrue(sup)
+        self.assertTrue(all(s["price"] < rows[-1][3] for s in sup))
+        self.assertEqual([s["price"] for s in sup], sorted((s["price"] for s in sup), reverse=True))
+        self.assertTrue(any(s["kind"] == "fib" for s in sup))
+
+    def test_stop_hierarchy(self):
+        rows = self.rows()
+        r = levels.stop_for(rows)
+        self.assertAlmostEqual(r["structural"], r["zone_lo"] - levels.BUFFER_ATR * r["atr"])
+        self.assertAlmostEqual(r["floor"], 0.9 * rows[-1][3])
+        self.assertEqual(r["stop"], max(r["structural"], r["floor"]))
+        self.assertEqual(r["cap_bound"], r["structural"] < r["floor"])
+        self.assertLess(r["stop"], rows[-1][3])
+
+    def test_a_wide_atr_is_cap_bound(self):
+        rows = [(d, h * 1.0, l - (h - l) * 5, c) for d, h, l, c in self.rows()]  # a much wider daily range
+        r = levels.stop_for(rows)
+        self.assertTrue(r["cap_bound"])
+        self.assertEqual(r["stop"], r["floor"])
+
+    def test_td_setup_nine(self):
+        down = _bars([(1, 100), (30, 70)])  # thirty straight lower closes
+        _, setups, _ = levels.td_sequential(down)
+        self.assertTrue(setups and setups[0]["side"] == "buy")
+        self.assertLess(setups[0]["risk"], min(r[2] for r in down[: setups[0]["at"] + 1]))
 
 
 if __name__ == "__main__":

@@ -14,8 +14,12 @@ technical-analysis, fibonacci-charts and demark-charts skills.
 """
 import datetime as dt
 import json
+import os
 import sys
 import urllib.request
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import levels  # noqa: E402  (the Fibonacci, DeMark and stop arithmetic, shared with the replays)
 
 # A US listing of a foreign stock that is too young for a 200-day average is
 # read on the original share as well. Keep in step with scripts/marketdata.py.
@@ -61,75 +65,8 @@ def sma(closes, n, end=None):
     return sum(closes[end - n:end]) / n
 
 
-def td_sequential(rows):
-    """TD Sequential on (date, high, low, close) bars, by the rules in
-    .claude/skills/demark-charts/references/demark-rules.md: a setup is nine
-    consecutive closes beyond the close four bars earlier, started by a price
-    flip; the countdown runs from bar nine, counts closes beyond the extreme
-    two bars earlier, completes on the 13-vs-8 rule and is cancelled by an
-    opposite setup or by a true extreme beyond TDST. A new setup in the same
-    direction restarts the countdown (the recycle qualifiers are not applied).
-    Returns (running, setups, countdown): the count in progress, every
-    completed setup, and the countdown of the newest one."""
-    n = len(rows)
-    H, L, C = [r[1] for r in rows], [r[2] for r in rows], [r[3] for r in rows]
-    th = [max(H[i], C[i - 1]) if i else H[i] for i in range(n)]  # true high and low
-    tl = [min(L[i], C[i - 1]) if i else L[i] for i in range(n)]
-    side, count, start, setups = None, 0, 0, []
-    for i in range(5, n):
-        now = "buy" if C[i] < C[i - 4] else "sell" if C[i] > C[i - 4] else None
-        if now is None or now != side:
-            side, count, start = now, (1 if now else 0), i  # a price flip starts the other count
-        else:
-            count += 1
-        if now and count == 9:
-            bars9 = range(start, i + 1)
-            if now == "buy":
-                worst = min(bars9, key=lambda j: tl[j])
-                setups.append({"side": "buy", "at": i, "tdst": max(th[j] for j in bars9),
-                               "risk": tl[worst] - (th[worst] - tl[worst])})
-            else:
-                worst = max(bars9, key=lambda j: th[j])
-                setups.append({"side": "sell", "at": i, "tdst": min(tl[j] for j in bars9),
-                               "risk": th[worst] + (th[worst] - tl[worst])})
-    for s in setups:  # perfection: bar 8, 9 or a later bar reaches the extreme of bars 6 and 7
-        i = s["at"]
-        if s["side"] == "buy":
-            level = min(L[i - 3], L[i - 2])
-            s["perfected"] = next((j for j in range(i - 1, n) if L[j] <= level), None)
-        else:
-            level = max(H[i - 3], H[i - 2])
-            s["perfected"] = next((j for j in range(i - 1, n) if H[j] >= level), None)
-    cd = None
-    if setups:
-        s = setups[-1]
-        cd = {"count": 0, "done": None, "cancelled": None, "deferred": False}
-        eighth = None
-        for i in range(s["at"], n):
-            later = [x for x in setups if x["at"] == i and x is not s]
-            if any(x["side"] != s["side"] for x in later):
-                cd["cancelled"] = "an opposite setup completed"
-                break
-            if s["side"] == "buy" and tl[i] > s["tdst"] or s["side"] == "sell" and th[i] < s["tdst"]:
-                cd["cancelled"] = "price moved beyond TDST"
-                break
-            hit = C[i] <= L[i - 2] if s["side"] == "buy" else C[i] >= H[i - 2]
-            if not hit:
-                continue
-            if cd["count"] < 12:
-                cd["count"] += 1
-                if cd["count"] == 8:
-                    eighth = C[i]
-            elif (L[i] <= eighth) if s["side"] == "buy" else (H[i] >= eighth):
-                cd["count"], cd["done"] = 13, i
-                break
-            else:
-                cd["deferred"] = True  # a "+": the 13 waits for the 13-vs-8 rule
-    return (side, count), setups, cd
-
-
 def td_line(label, rows):
-    (side, count), setups, cd = td_sequential(rows)
+    (side, count), setups, cd = levels.td_sequential(rows)
     day = lambda i: f"{rows[i][0]:%d-%m-%y}"  # noqa: E731
     ago = lambda i: len(rows) - 1 - i  # noqa: E731
     out = [f"running {side} setup {count}" if side else "no setup running"]
@@ -150,6 +87,30 @@ def td_line(label, rows):
     else:
         out.append("no completed setup in the window")
     print(f"  DeMark {label}: " + " · ".join(out))
+
+
+def stop_ladder(d):
+    """The STOP LADDER: the Fibonacci and DeMark supports under the close and the stop the
+    playbook's STOP HIERARCHY builds from them (level first, ATR second, the loss floor third)."""
+    r = levels.stop_for(d)
+    close = d[-1][3]
+    if r is None:
+        print("  STOP LADDER: no Fibonacci or DeMark support under the close")
+        return
+    a = r["atr"]
+    print(f"  STOP LADDER (supports under {close:.2f}; anchors are a default, keep the leg the chart supports):")
+    for s in r["ladder"][:9]:
+        print(f"    {s['price']:9.2f}  {100 * (s['price'] / close - 1):+6.1f}%  {(close - s['price']) / a:4.1f} ATR  {s['label']}")
+    z = r["zone"]
+    print(
+        f"  STOP HIERARCHY: zone {r['zone_lo']:.2f}–{r['zone_hi']:.2f} ({len(z)} level{'s' if len(z) > 1 else ''}"
+        f"{', confluence ' + ' · '.join(r['confluence']) if r['confluence'] else ''}) "
+        f"− 1 ATR {a:.2f} = {r['structural']:.2f} ({100 * (r['structural'] / close - 1):+.1f}%) · "
+        f"loss floor {r['floor']:.2f} → "
+        + (f"CAP-BOUND: rests at {r['floor']:.2f}; the chart exit is a daily close under {r['zone_lo']:.2f}"
+           + ("" if close - r["zone_lo"] >= a else " (NOT used: under 1 ATR from the close, too tight)")
+           if r["cap_bound"] else f"LEVEL-BOUND: rests at {r['structural']:.2f}")
+    )
 
 
 def read(ticker):
@@ -225,6 +186,7 @@ def read(ticker):
     # bullish (selling exhausting); a SELL 9 or 13 is bearish.
     td_line("daily", d)
     td_line("weekly", [r for r in w if r[0] < this_week or dt.date.today().weekday() >= 5] or w)
+    stop_ladder(d)
     top = max(d, key=lambda r: r[1])
     print(f"  2y high {top[1]:.2f} on {top[0]} · low since {min(r[2] for r in d if r[0] >= top[0]):.2f}")
 

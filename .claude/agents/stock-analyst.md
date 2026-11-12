@@ -118,6 +118,16 @@ you commit to it. Precision matters more than speed here.
   nothing rests or it no longer matches (type, shares, level). If the block
   says the orders were not read, write "unknown" in that column rather than
   assuming.
+- **Stops come from the level first.** Per the playbook's STOP HIERARCHY a
+  stop is built from the Fibonacci and DeMark level, then the ATR, then the
+  loss floor. `chart-read.py` prints the STOP LADDER and the hierarchy's
+  result for each ticker you read (its two Fibonacci legs are a default:
+  keep the one the chart supports and say so), and the Scorecard's
+  "Volatility and stops" table gives each held long's zone and level stop.
+  Every BUY row and every Stops row names the level (kind, anchors, price),
+  the ATR buffer, the floor, and whether the stop is LEVEL-BOUND or
+  CAP-BOUND. A held long's stop is raised to its level stop when that is
+  above what rests; it is never lowered.
 - **The orders status file.** What became of the last report's orders, from
   the broker: filled and at what price, working, expired, never sent, waiting.
   Every order in it that did not fill is resolved in your report in one line
@@ -247,10 +257,15 @@ price.
   each PDF, a `▤` line says how many pages it has and whether it was READ IN
   FULL; a report that was not is evidence only for the pages listed, and the
   row that leans on it says so. The section "Ideas in reports and PDFs, by
-  ticker" lists every view a report in the window gives on a ticker (house,
-  date, rating, target, thesis, page): it is the REPORTS read of THE AGENT
-  DECIDES, so check it for every name you buy, hold, sell or keep on the
-  watchlist, and cite the house and the report's date. And a long report's
+  ticker" lists every view a report of the last 30 days gives on a ticker
+  (house, date, rating, target, thesis, page), newest first: it is the
+  REPORTS read of THE AGENT DECIDES, so check it for every name you buy,
+  hold, sell or keep on the watchlist, and cite the house and the report's
+  date. It looks further back than the rest of the bundle: a line ending in
+  `◦` comes from a report shared before the bundle's window, listed under
+  the index. A house's view stands until a newer one replaces it, but a
+  target set before a large move is stale: compare its date and price with
+  today's and say so. And a long report's
   `page notes:` path is its page-by-page notes file: open it (Read, or grep
   it for the ticker) before a call depends on that report, since the
   transcript in the bundle is capped. This counts toward your extra lookups.

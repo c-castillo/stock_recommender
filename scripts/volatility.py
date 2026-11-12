@@ -27,6 +27,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location("chart_read", os.path.join(HERE, "chart-read.py"))
 chart_read = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(chart_read)
+sys.path.insert(0, HERE)
+import levels  # noqa: E402
 
 MAX_LOSS = 0.10
 RECENT_SESSIONS = 5
@@ -83,11 +85,11 @@ def main():
 
     last = max((d[-1][0] for d in bars.values()), default=None)
     print(f"\n## Volatility and stops (ATR 14 from Yahoo daily bars, last bar {last})")
-    print("A stop closer than one ATR to the close sits inside a normal day's range. "
-          "The playbook's ROOM FOR THE NOISE rule wants a new stop at least one ATR under the chart level "
-          "and two ATRs under the entry, and never under the 90% floor.")
-    print("\nTicker|Shares|Close|ATR|ATR %|Resting stop|Distance|In ATRs|90% floor|Close − 2 ATR|Flag")
-    print("---|---|---|---|---|---|---|---|---|---|---")
+    print("A stop closer than one ATR to the close sits inside a normal day's range. The playbook's STOP HIERARCHY builds "
+          "a stop from the Fibonacci and DeMark level first, one ATR under it, and never under the 90% floor; "
+          "\"Level stop\" is that stop from today's close (the zone's lower edge − 1 ATR), \"Zone\" the levels behind it.")
+    print("\nTicker|Shares|Close|ATR|ATR %|Resting stop|Distance|In ATRs|90% floor|Zone (lower edge)|Level stop|Flag")
+    print("---|---|---|---|---|---|---|---|---|---|---|---")
     for p in held:
         t, d = p["ticker"], bars.get(p["ticker"])
         if not d or len(d) < 16:
@@ -97,11 +99,14 @@ def main():
         stops = resting.get(t, [])
         top = max((s for _, s in stops), default=None)
         flag = "no stop rests" if top is None else ("inside 1 ATR: a normal day can take it" if close - top < a else "")
+        lv = levels.stop_for(d)
+        zone = "—" if lv is None else f"${lv['zone_lo']:,.2f} ({lv['zone'][-1]['label'][:48]})"
+        lstop = "—" if lv is None else f"${lv['structural']:,.2f}" + (" (under the floor)" if floor and lv["structural"] < floor else "")
         print(f"{t}|{p['shares']:g}|${close:,.2f}|${a:,.2f}|{100 * a / close:.1f}%|"
               f"{', '.join(f'{q:g} at ${s:,.2f}' for q, s in stops) or '—'}|"
               f"{'—' if top is None else f'{100 * (top / close - 1):+.1f}%'}|"
               f"{'—' if top is None else f'{(close - top) / a:.1f}'}|"
-              f"{'—' if floor is None else f'${floor:,.2f}'}|${close - 2 * a:,.2f}|{flag}")
+              f"{'—' if floor is None else f'${floor:,.2f}'}|{zone}|{lstop}|{flag}")
 
     print(f"\n### Stopped out in the last {RECENT_SESSIONS} sessions (the WHIPSAW watch)")
     print("Ticker|Stopped|Fill|Stop|Last close|Closed back above the stop?|Sessions since|Low of that session|Re-entry stop (low − 1 ATR)")

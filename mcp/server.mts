@@ -50,6 +50,7 @@ import {
   renderMediaDigestBlock,
   renderMainAnalystAddLedger,
   loadMainAnalystAddLedger,
+  loadOlderIdeaRows,
 } from "@/lib/ai/content-loader";
 import { buildPortfolioContext } from "@/lib/ai/portfolio-context";
 import { classifyTickers, renderSectorLookup } from "@/lib/market/classify";
@@ -97,6 +98,16 @@ function pdfPages(file: string): number | null {
   }
   return pageCounts.get(file) ?? null;
 }
+
+/**
+ * A periodical or a book, by its file name: an edition of a newspaper or a
+ * magazine, a textbook. A reader of its own would only find out that it is not
+ * research, at the price of a run.
+ */
+const NOT_RESEARCH_NAME =
+  /(economist|barron|wall[_ ]street[_ ]journal|\bwsj\b|moneyweek|forbes|fortune|businessweek|bloomberg[_ ]markets|magazine|[_ ]review\b|foreign[_ ]affairs|harvard|focus[_ ]money|tradersworld|capital[_ ]market[_ ]-|gulf[_ ]business|beyond[_ ]market|consumer[_ ]reports|\beibd|investor_?s[_ ]business|financial[_ ]times|\bft[_ ]|mercurio|diario[_ ]?financiero|eldiario|la[_ ]tercera|business[_ ]english|hong[_ ]kong[_ ]business|bcbusiness|business[_ ]fortune)/i;
+/** The same judgement as an earlier digest wrote it in its `source` field. */
+const NOT_RESEARCH_SOURCE = /(newspaper|magazine|periodical|textbook|\bbook\b|e-?book|tutorial|educational)/i;
 
 function pagesNote(file: string | null): string {
   const pages = file ? pdfPages(file) : null;
@@ -255,7 +266,7 @@ export function buildMcpServer(): McpServer {
           renderMainAnalystAddLedger(await loadMainAnalystAddLedger()) +
           renderFilingsBlock(filings, FILINGS_WINDOW_DAYS) +
           renderTextBlock(textRows) +
-          renderMediaDigestBlock(mediaRows, { transcriptSince }) +
+          renderMediaDigestBlock(mediaRows, { transcriptSince, olderIdeaRows: loadOlderIdeaRows(days) }) +
           portfolio +
           history
       );
@@ -408,20 +419,39 @@ export function buildMcpServer(): McpServer {
       inputSchema: {
         days: z.number().int().min(1).max(60).default(7),
         limit: z.number().int().min(1).max(100).default(40),
+        reprocess: z
+          .boolean()
+          .default(false)
+          .describe(
+            "true lists, instead of unread files, the reports of 25 pages or fewer that were " +
+              "digested before digests carried `ideas`: read them again and save them with ideas " +
+              "(an empty list when the report has none), so they join the ideas index."
+          ),
       },
       annotations: { readOnlyHint: true },
     },
-    async ({ days, limit }) => {
+    async ({ days, limit, reprocess }) => {
       const pending = getContentForAnalysis(days, 8000)
-        .filter(
-          (r) =>
-            r.media_path &&
-            r.media_digest == null &&
-            isDigestible(r) &&
-            fs.existsSync(r.media_path)
-        )
+        .filter((r) => {
+          if (!r.media_path || !isDigestible(r) || !fs.existsSync(r.media_path)) return false;
+          if (!reprocess) return r.media_digest == null;
+          if (r.media_type !== "document" || r.media_digest == null) return false;
+          const pages = pdfPages(r.media_path);
+          if (pages == null || pages > LONG_REPORT_PAGES) return false; // long ones: long_reports
+          try {
+            const d = JSON.parse(r.media_digest);
+            return d.ideas === undefined && !/^newspaper — discarded/i.test(d.source ?? "");
+          } catch {
+            return true;
+          }
+        })
         .sort((a, b) => b.ts - a.ts);
-      if (pending.length === 0) return text(`No undigested media in the last ${days} days.`);
+      if (pending.length === 0)
+        return text(
+          reprocess
+            ? `No report in the last ${days} days is missing its ideas.`
+            : `No undigested media in the last ${days} days.`
+        );
       const batch = pending.slice(0, limit);
       const list = batch
         .map(
@@ -434,7 +464,7 @@ export function buildMcpServer(): McpServer {
         )
         .join("\n");
       return text(
-        `## ${pending.length} file(s) awaiting a digest` +
+        `## ${pending.length} ${reprocess ? "report(s) digested without ideas, to read again" : "file(s) awaiting a digest"}` +
           (pending.length > batch.length ? ` (showing newest ${batch.length})` : "") +
           `\n\n${list}\n\n` +
           "## How to digest each file\n" +
@@ -476,6 +506,7 @@ export function buildMcpServer(): McpServer {
         .filter((r) => r.media_type === "document" && r.media_path && fs.existsSync(r.media_path))
         .sort((a, b) => b.ts - a.ts);
       const out: string[] = [];
+      let notResearch = 0;
       for (const r of rows) {
         const pages = pdfPages(r.media_path!);
         if (pages == null || pages <= LONG_REPORT_PAGES) continue;
@@ -486,6 +517,10 @@ export function buildMcpServer(): McpServer {
           /* an unreadable digest is treated as no digest */
         }
         if (d.full_read || /^newspaper — discarded/i.test(d.source ?? "")) continue;
+        if (NOT_RESEARCH_NAME.test(path.basename(r.media_path!)) || NOT_RESEARCH_SOURCE.test(d.source ?? "")) {
+          notResearch++;
+          continue;
+        }
         const notes = path.join(REPORT_NOTES_DIR, `${r.id.replace(/[^A-Za-z0-9._-]/g, "_")}.md`);
         const head =
           `- id: ${r.id}\n  path: ${r.media_path}\n  ${pages} pages · ${fmtTs(r.ts)} · "${r.group_name}" · ` +
@@ -518,9 +553,13 @@ export function buildMcpServer(): McpServer {
         }
         out.push(`${head}\n  runs:\n${runs.map((x) => `    • ${x}`).join("\n")}`);
       }
-      if (out.length === 0) return text(`No long report awaiting a full read in the last ${days} days.`);
+      const skipped = notResearch
+        ? ` (${notResearch} long PDF(s) left out as periodicals or books, by file name or by their digest's source.)`
+        : "";
+      if (out.length === 0)
+        return text(`No long report awaiting a full read in the last ${days} days.${skipped}`);
       return text(
-        `## ${out.length} long report(s) to read in full\n\n${out.join("\n")}\n\n` +
+        `## ${out.length} long report(s) to read in full${skipped}\n\n${out.join("\n")}\n\n` +
           "Start one `report-reader` agent per bullet under `runs`, with the bullet as its prompt. " +
           "Different reports, and the parts of one report, can run in parallel; an `Assemble` run " +
           "starts only after every part of its report has finished."
