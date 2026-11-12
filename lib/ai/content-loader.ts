@@ -16,11 +16,13 @@ import {
   type MainAnalystAddEntry,
   type MessageForAnalysis,
   getDigestsWithIdeas,
+  getDigestsWithMacro,
 } from "@/lib/whatsapp/db";
 import { fetchCurrentPrices } from "@/lib/market/quotes";
 import { fetchMa200Slopes } from "@/lib/ma200";
-import type { ReportIdea } from "@/lib/ai/media-prompts";
+import type { MacroNote, ReportIdea } from "@/lib/ai/media-prompts";
 import { isLocalListing, normalizeIdeas } from "@/lib/market/tickers";
+import { MACRO_TOPICS, macroTopicsOf, normalizeMacroTopic } from "@/lib/market/macro-topics";
 
 // ── Limits ────────────────────────────────────────────────────────────────────
 
@@ -248,6 +250,77 @@ function renderIdeasIndex(ideas: IndexedIdea[], olderReports: string[]): string 
       `\nReports shared before this bundle's window whose ideas are marked \`◦\` above:\n` +
       olderReports.map((l) => `- ${l}`).join("\n") +
       "\n";
+  }
+  return out;
+}
+
+/** How far back the macro index looks. */
+export const MACRO_WINDOW_DAYS = 30;
+
+export function loadMacroRows(): MessageForAnalysis[] {
+  return getDigestsWithMacro(MACRO_WINDOW_DAYS);
+}
+
+/**
+ * The macro reads: what the reports and PDFs of the last MACRO_WINDOW_DAYS say
+ * about each topic (rates, inflation, positioning, politics, the AI cycle…),
+ * and beside each topic what the groups said in the bundle's own window. Macro
+ * is not a trading idea and is not thrown away: it is the frame the ideas sit
+ * in, and the place where a house and the main analyst can disagree.
+ */
+export function renderMacroReads(macroRows: MessageForAnalysis[], textRows: MessageForAnalysis[]): string {
+  type Note = MacroNote & { ts: number; group: string };
+  const byTopic = new Map<string, Note[]>();
+  for (const r of macroRows) {
+    let d: { macro?: MacroNote[] };
+    try {
+      d = JSON.parse(r.media_digest!);
+    } catch {
+      continue;
+    }
+    for (const n of d.macro ?? []) {
+      const topic = n?.topic ? normalizeMacroTopic(n.topic) : null;
+      if (!topic || !n.view) continue;
+      byTopic.set(topic, [...(byTopic.get(topic) ?? []), { ...n, topic, ts: r.ts, group: r.group_name ?? "" }]);
+    }
+  }
+  const chat = new Map<string, MessageForAnalysis[]>();
+  for (const r of textRows) {
+    const body = (r.body ?? "").replace(/\s+/g, " ").trim();
+    if (body.length < 25) continue;
+    for (const t of macroTopicsOf(body)) chat.set(t, [...(chat.get(t) ?? []), r]);
+  }
+  const topics = MACRO_TOPICS.filter((t) => byTopic.has(t) || chat.has(t));
+  if (byTopic.size === 0) return "";
+  const stanceCount = (ns: Note[]) => {
+    const c: Record<string, number> = {};
+    for (const n of ns) c[n.stance] = (c[n.stance] ?? 0) + 1;
+    return Object.entries(c).map(([k, v]) => `${v} ${k}`).join(", ");
+  };
+  let out =
+    `\n## Macro reads — reports and PDFs by topic, with what the groups said (reports of the last ${MACRO_WINDOW_DAYS} days)\n` +
+    "Each topic lists the macro notes the reports and PDFs carry (house, the report's own date, stance for risk assets, " +
+    "the read with its numbers, page), newest first, then the group chatter on the same topic in this bundle's window " +
+    "(how many messages, and the latest from the main analyst and from others). A macro note is not a trade: use it as the " +
+    "frame for the Macro reading by sector, say where houses agree or split, and where the groups and the main analyst " +
+    "differ from the houses. An older note stands until a newer one replaces it.\n";
+  for (const t of topics.sort((a, b) => (byTopic.get(b)?.length ?? 0) + (chat.get(b)?.length ?? 0) - (byTopic.get(a)?.length ?? 0) - (chat.get(a)?.length ?? 0))) {
+    const notes = (byTopic.get(t) ?? []).sort((a, b) => b.ts - a.ts);
+    out += `\n### ${t}${notes.length ? ` — ${notes.length} note(s): ${stanceCount(notes)}` : ""}\n`;
+    for (const n of notes.slice(0, 8)) {
+      out += `- ${n.house} ${n.date} · ${n.stance} · ${n.view}${n.page && n.page !== "—" ? ` (p. ${n.page})` : ""}\n`;
+    }
+    if (notes.length > 8) out += `- … and ${notes.length - 8} older note(s) on this topic\n`;
+    const msgs = (chat.get(t) ?? []).sort((a, b) => b.ts - a.ts);
+    if (msgs.length) {
+      const main = msgs.filter((m) => isMainAnalyst(m.sender));
+      out += `  Groups: ${msgs.length} message(s) in the window, ${main.length} from the main analyst.\n`;
+      const shown = [...main.slice(0, 2), ...msgs.filter((m) => !isMainAnalyst(m.sender)).slice(0, 2)].sort((a, b) => b.ts - a.ts);
+      for (const m of shown) {
+        const body = (m.body ?? "").replace(/\s+/g, " ").trim();
+        out += `    · ${formatTs(m.ts)} ${isMainAnalyst(m.sender) ? "main analyst" : "member"}: ${body.length > 230 ? body.slice(0, 229) + "…" : body}\n`;
+      }
+    }
   }
   return out;
 }

@@ -253,6 +253,14 @@ price.
   he adds one by voice, image or chat rather than `+TICKER`, persist it with
   `record_main_analyst_add`, with `invalidation` if he named a level — editing a past
   report does nothing, the ledger is what gets injected into every future run.
+- **Macro reads sit beside the groups' chatter.** The bundle's section "Macro
+  reads — reports and PDFs by topic" lists, per topic (rates, inflation,
+  positioning and flows, politics, the AI cycle, commodities, the market's
+  trend), what the reports and PDFs of the last 30 days say, with stance and
+  numbers, and under it how many messages the groups wrote on that topic and
+  the latest from the main analyst. Build the Macro reading by sector from it:
+  say where the houses agree or split, and where the groups and the main
+  analyst differ from the houses. A macro note is a frame, not a trade.
 - **Reports and PDFs are read through three things in the bundle.** Under
   each PDF, a `▤` line says how many pages it has and whether it was READ IN
   FULL; a report that was not is evidence only for the pages listed, and the
@@ -283,6 +291,15 @@ price.
   and the close, count or print that would repair it. Cite an implicit
   confirmation as thesis evidence with its date, and re-date an aging row
   with `record_main_analyst_add` when the session carries one.
+- **A dip can be bought, on a track of its own.** Under the playbook's
+  DIP-BUY TRACK a name under its 50-day may be bought when its 200-day rises
+  and the close is at or above it, the close holds a Fibonacci support of
+  the primary leg, no DeMark Sell exhaustion stands against it, and you can
+  say why the news is noise. The stop is the 90% floor; the row starts
+  "BUY n sh … — DIP-BUY TRACK:" and names the support, the DeMark risk level
+  and the date the thesis is next tested. Most of the journal's history was
+  placed without this playbook: do not read it as evidence against a
+  disciplined dip buy.
 - **A new position needs neither a main analyst ADD nor a bullish report.** The
   playbook's TECHNICAL BUY is the second buy signal (the user's rule of
   2026-11-11): a name that passes the rules (OWN TREND, CONFIRM while it

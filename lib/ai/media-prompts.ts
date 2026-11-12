@@ -6,6 +6,7 @@
  */
 
 import { z } from "zod";
+import { MACRO_TOPICS } from "@/lib/market/macro-topics";
 
 export const digestSchema = z.object({
   ticker: z
@@ -92,6 +93,32 @@ export const reportSchema = z.object({
         "price, a place on a preference or ideas list, a thesis. A ticker merely " +
         "mentioned in passing is not an idea."
     ),
+  macro: z
+    .array(
+      z.object({
+        topic: z
+          .string()
+          .describe(
+            "One of: " + MACRO_TOPICS.join(" | ") + ". Pick the closest; a note on two topics is two entries."
+          ),
+        house: z.string().describe("Who says it: GS, MS, UBS, BofA, a desk, a member"),
+        date: z.string().describe("The report's own date, dd-mm"),
+        stance: z
+          .enum(["risk-on", "risk-off", "neutral", "mixed"])
+          .describe("What the note implies for risk assets"),
+        view: z
+          .string()
+          .describe("The read in one or two lines with its key figures: levels, dates, flows, probabilities"),
+        page: z.string().describe("Page(s) of the PDF, or '—'"),
+      })
+    )
+    .optional()
+    .describe(
+      "The macro reads of the report or PDF, whether or not it has trading ideas: what it says about " +
+        "rates, inflation, growth, positioning and flows, liquidity, politics, the AI cycle, commodities " +
+        "or the market's trend. A flows, volatility, strategy or economics note is mostly this. An empty " +
+        "list only when the document has no macro content at all (a stock-only note)."
+    ),
   pages_total: z.number().int().optional().describe("PDF page count (pdfinfo)"),
   pages_read: z
     .string()
@@ -108,6 +135,7 @@ export const reportSchema = z.object({
 });
 
 export type ReportIdea = NonNullable<z.infer<typeof reportSchema>["ideas"]>[number];
+export type MacroNote = NonNullable<z.infer<typeof reportSchema>["macro"]>[number];
 
 /** A PDF with more pages than this is read by its own agent, not in the batch pass. */
 export const LONG_REPORT_PAGES = 25;

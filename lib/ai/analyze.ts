@@ -34,6 +34,8 @@ import {
   renderTextBlock,
   renderMediaDigestBlock,
   loadOlderIdeaRows,
+  loadMacroRows,
+  renderMacroReads,
   renderMainAnalystAddLedger,
   loadMainAnalystAddLedger,
   type AnalysisStats,
@@ -195,6 +197,7 @@ export async function* streamAnalysis(): AsyncGenerator<AnalysisChunk> {
     sectorLookup +
     renderTextBlock(ranked) +
     renderMediaDigestBlock(mediaRows, { olderIdeaRows: loadOlderIdeaRows(7) }) +
+    renderMacroReads(loadMacroRows(), ranked) +
     portfolioContext +
     loadAllWikis() +
     memoryContext +

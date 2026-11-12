@@ -73,7 +73,13 @@ as relevant.
      ticker it gives a view on (a rating, a target price, a place on a
      preference or ideas list, a thesis), with `house`, `date` (the report's
      own, dd-mm), `rating`, `target`, `thesis` in one line and `page`. A
-     table of rated stocks is one idea per row. Use the US listing as the
+     table of rated stocks is one idea per row. **Macro is not thrown away:**
+     fill `macro` for every report, note or PDF that says something about the
+     macro picture, whether or not it has trading ideas (a CPI preview, a CTA
+     or volatility-flow model, a midterm study, a strategy note): one entry per
+     topic (the schema lists them), with the house, the report's own date,
+     the stance for risk assets and the read in a line or two WITH its numbers.
+     A flows or economics note is mostly macro and gets `ideas: []`. Use the US listing as the
      ticker when you are sure of it, the local code (005930.KS) otherwise;
      the server normalises known aliases and says what it renamed. Also fill
      `pages_total`,

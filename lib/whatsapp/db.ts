@@ -615,6 +615,22 @@ export function getDigestsWithIdeas(sinceDaysAgo: number): MessageForAnalysis[] 
     .all(since) as MessageForAnalysis[];
 }
 
+/** Digests of the selected groups that carry macro notes, newest first (the macro index looks as far back as the ideas index). */
+export function getDigestsWithMacro(sinceDaysAgo: number): MessageForAnalysis[] {
+  const since = Math.floor(Date.now() / 1000) - sinceDaysAgo * 86400;
+  return getDb()
+    .prepare(
+      `SELECT m.id, m.jid, g.name AS group_name, m.sender, m.body, m.ts,
+              m.media_type, m.media_mime, m.media_filename, m.media_path, m.media_digest
+       FROM wa_messages m
+       JOIN wa_groups g ON m.jid = g.jid
+       WHERE g.selected = 1 AND m.ts >= ?
+         AND m.media_digest LIKE '%"macro":[{%'
+       ORDER BY m.ts DESC`
+    )
+    .all(since) as MessageForAnalysis[];
+}
+
 /**
  * The same rows as getContentForAnalysis, for named groups instead of the
  * selected ones: a separate analysis (the Chilean book) reads its own group

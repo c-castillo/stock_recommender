@@ -1,7 +1,7 @@
 ---
 name: report-reader
 description: Reads ONE long report or research PDF in full (more than 25 pages) and saves its digest with the ideas it holds per ticker. Use for each run that the `long_reports` tool lists, with that line as the prompt — a whole report, one part of a very long one, or the assembly of its parts. Reads and writes through the stock-recommender MCP server.
-model: claude-sonnet-5-5
+model: claude-haiku-5-5
 effort: medium
 ---
 
@@ -37,6 +37,24 @@ file, the notes file, and one of four jobs:
   current digest's ideas and transcript from the last
   `save_media_digest` arguments if the caller names that file; otherwise
   rebuild them from the notes.
+
+A trailing bracketed note on your job line ("[run with model: haiku]") only
+says which model the caller started you on: ignore it in the job itself.
+
+## Who reads and who checks
+
+The parts are read by the cheaper model (Haiku), which is weaker at charts; the
+assembly and finish runs are Sonnet's. So an **Assemble** run is also the check:
+before it saves, open at least five exhibit pages with the Read tool, chosen
+from the part notes as the ones carrying the most numbers (tables of ratings
+and targets, dense charts), and compare each against what the notes say. Append
+the result under `## Assembly check` (page, matches or what was wrong). Correct
+every wrong figure in the notes and the transcript. If two or more of the five
+differ materially in the same part, that part was misread: set `full_read:
+false`, name the part's pages in `pages_read`, and say so in your report so the
+caller re-reads it with Sonnet. A part reader (Haiku) opens every exhibit page
+as instructed and does not interpret: it copies numbers and labels, and writes
+"not legible" rather than a guess.
 
 ## You do not judge relevance
 
@@ -117,6 +135,11 @@ Call `save_media_digest` with the report's id and:
   semis preference table, memory bucket; +73.9% to target, 4.1x CY27 P/E").
   A company name or an upside percentage alone is not a thesis. Give the
   target with its currency.
+  Ideas are for companies and ETFs that trade as a ticker. No index,
+  commodity, rate or FX symbols (^SPX, BRENT, a Yahoo-style code you worked
+  out yourself), and no symbol you are guessing: a flows, positioning or
+  macro report with no ticker views gets `ideas: []`, and its numbers live in
+  the transcript.
   The server keeps one symbol per company: it turns a short name or a local
   code into the US listing it knows (KEPCO and 015760.KS become KEP,
   000660.KS becomes SKHY) and tells you what it renamed. Give the US listing
@@ -124,6 +147,15 @@ Call `save_media_digest` with the report's id and:
   otherwise; never make a symbol up from a company name. A company the
   server did not recognise and that you know has a US listing belongs in
   `lib/market/tickers.ts`: say so in your report.
+- `macro`: the macro reads of the report, whether or not it has trading ideas
+  — what it says about rates, inflation, growth, positioning and flows,
+  liquidity, politics, the AI cycle, commodities or the market's trend. One
+  entry per topic (the schema lists the topics): `house`, `date` (the report's
+  own, dd-mm), `stance` for risk assets, `view` in a line or two with its
+  numbers (levels, dates, flows, probabilities), `page`. A flows, strategy or
+  economics note is mostly this and has `ideas: []`; a stock-only note has an
+  empty list. The bundle prints these beside what the groups said on the same
+  topic, so write the read the way you would want to compare it.
 - `pages_total`, `pages_read` ("read 1-82 (exhibits 13, 20-24, 81-82 as
   images); skipped 83-93 disclosures"), `full_read: true` only when every
   content page was read and every exhibit page was opened, and `notes_path`

@@ -18,7 +18,9 @@ same every night, which is the point of having them in a script:
              is not blocked by a results date: its date is printed as a note
   risk       no BUY loses more than the risk budget between its entry and its stop
   trend      no BUY (an ADD included) of a name whose last close is not above its
-             50-day average or whose 200-day average is not rising (OWN TREND)
+             50-day average or whose 200-day average is not rising (OWN TREND);
+             a row marked DIP-BUY TRACK is judged on the 200-day alone: rising,
+             and under the close
   discipline no BUY of a leveraged long fund, no new stop more than 10% under
              the entry, and every held long more than 10% under its cost is sold
              (or trimmed, when the row says it is an ACTIVE or AGING ADD)
@@ -250,6 +252,13 @@ def check_trend(recs, bars):
             bad.append(f"{t}: BUY with {len(long)} sessions of history, under the {TREND_BARS} a 200-day slope needs (OWN TREND)")
             continue
         m50, m200, was = sum(c[-50:]) / 50, sum(long[-200:]) / 200, sum(long[-220:-20]) / 200
+        if "DIP-BUY TRACK" in (r.get("reasoning") or ""):
+            # The dip-buy track: under the 50-day is the point; the 200-day must rise and hold the close.
+            if m200 <= was:
+                bad.append(f"{t}: DIP-BUY TRACK with a 200-day that is not rising ({100 * (m200 / was - 1):+.2f}% in 20 sessions)")
+            if c[-1] < m200:
+                bad.append(f"{t}: DIP-BUY TRACK with the close ${c[-1]:,.2f} under its 200-day ${m200:,.2f}: a broken trend, not a dip")
+            continue
         if c[-1] <= m50:
             bad.append(f"{t}: BUY with the close ${c[-1]:,.2f} not above its 50-day ${m50:,.2f} (OWN TREND)")
         if m200 <= was:
@@ -275,6 +284,19 @@ def check_discipline(recs, positions, prices, orders=()):
         entry, stop = first_money(r.get("entryPrice")), first_money(r.get("stopLoss"))
         if r["ticker"] not in HEDGES and entry and stop and stop < entry * (1 - MAX_LOSS) - 0.01:
             bad.append(f"{r['ticker']}: stop ${stop:,.2f} is {100 * (1 - stop / entry):.1f}% under the entry; the cap is 10%")
+        if "DIP-BUY TRACK" in (r.get("reasoning") or "") and entry:
+            # The dip-buy track's stop is the loss floor: 90% of the entry, not a tighter level stop.
+            floor = (1 - MAX_LOSS) * entry
+            checks = [("stop", stop)]
+            # A buy that opens a position carries its stop (attachStop); an add to a held name does not.
+            checks += [("attached stop", o.get("attachStop")) for o in orders
+                       if o.get("ticker") == r["ticker"] and o.get("side") == "buy"
+                       and (o.get("attachStop") is not None or r["ticker"] not in cost)]
+            for what, level in checks:
+                if not isinstance(level, (int, float)) or not (0.99 * floor <= level <= 1.01 * floor):
+                    shown = "missing" if not isinstance(level, (int, float)) else f"${level:,.2f}"
+                    bad.append(f"{r['ticker']}: DIP-BUY TRACK {what} {shown} is not the 90% floor "
+                               f"(${floor:,.2f} on a ${entry:,.2f} entry)")
     sold = {t for t, side, _, _ in rows if side == "SELL"}
     reason = {r["ticker"]: r.get("reasoning") or "" for r in recs}
     for p in positions:

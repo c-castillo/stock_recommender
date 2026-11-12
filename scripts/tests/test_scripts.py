@@ -232,6 +232,14 @@ class PublishChecks(unittest.TestCase):
         self.assertEqual(len(publish.check_trend([self.rec()], {"MRVL": falling})), 2)
         young = dict(zip(days[:100], range(100, 200)))
         self.assertIn("under the 220", publish.check_trend([self.rec()], {"MRVL": young})[0])
+        # The dip-buy track: under the 50-day is allowed while the 200-day rises and the close holds above it.
+        dip = self.rec(reasoning="BUY 6 sh ≈ $1,000 — DIP-BUY TRACK: Fibonacci 0.5 support")
+        shallow = {**rising, days[-1]: 205.0}  # under the 50-day (about 217), over the 200-day (about 195)
+        self.assertEqual(publish.check_trend([dip], {"MRVL": shallow}), [])
+        self.assertIn("under its 200-day", publish.check_trend([dip], {"MRVL": dipped})[0])
+        broke = {**rising, days[-1]: 90.0}  # under the 200-day as well
+        self.assertIn("under its 200-day", publish.check_trend([dip], {"MRVL": broke})[0])
+        self.assertEqual(len(publish.check_trend([dip], {"MRVL": falling})), 2)
         self.assertEqual(len(publish.check_trend([self.rec()], {})), 1)  # no bars is not a pass
         # A hedge is judged by its underlying, and a HOLD or a SELL is not a buy.
         self.assertEqual(publish.check_trend([self.rec(ticker="SSG")], {}), [])
@@ -241,6 +249,16 @@ class PublishChecks(unittest.TestCase):
         for t in ("KORU", "SNDU", "UXRP"):
             self.assertTrue(any("leveraged long fund" in b for b in publish.check_discipline([self.rec(ticker=t)], [], {})))
         self.assertEqual(publish.check_discipline([self.rec()], [], {}), [])
+
+    def test_dip_buy_stop_is_the_floor(self):
+        dip = lambda stop: self.rec(entryPrice="$100.00 (close)", stopLoss=stop,  # noqa: E731
+                                    reasoning="BUY 5 sh ≈ $500 — DIP-BUY TRACK: Fibonacci 0.5 support")
+        order = lambda stop: [{"ticker": "MRVL", "side": "buy", "attachStop": stop}]  # noqa: E731
+        self.assertEqual(publish.check_discipline([dip("$90.00 (the 90% floor)")], [], {}, order(90.0)), [])
+        tight = publish.check_discipline([dip("$94.00 (Fibonacci 0.5 − 1 ATR)")], [], {}, order(94.0))
+        self.assertEqual(len(tight), 2)  # the row's stop and the order's attached stop
+        self.assertIn("not the 90% floor", tight[0])
+        self.assertEqual(len(publish.check_discipline([dip("$90.00")], [], {}, order(None))), 1)  # no attached stop
 
     def test_orders_file(self):
         recs = [self.rec(ticker="LRCX", action="SELL", entryPrice="$301.11", reasoning="SELL 6 sh ≈ $1,807 — funding leg")]

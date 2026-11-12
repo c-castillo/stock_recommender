@@ -170,7 +170,10 @@ python3 scripts/mcp-call.py long_reports '{"days": N}'    # N = fullDetailDays
 (or the `long_reports` MCP tool when this session has it). For each report it
 prints the runs it needs: one, or one per 60 pages plus a run that assembles
 them. Start a `report-reader` agent per bullet, with the bullet as the whole
-prompt. Different reports, and the parts of one report, run in parallel (at
+prompt and the model its bracketed note names (`haiku` reads the parts,
+`sonnet` assembles and finishes: the assembly opens a sample of exhibit pages
+to check the cheaper model's notes, and a part it finds misread is re-read
+with Sonnet). Different reports, and the parts of one report, run in parallel (at
 most four agents at a time); an `Assemble` run starts only when every part of
 its report has finished. If this session has no `report-reader` agent type
 (it was added after the session started), use a `general-purpose` agent whose
@@ -320,7 +323,7 @@ every held ticker has a row; no discretionary SELL within three sessions of
 its own results (fired stops and must-fill rule sales still go; a BUY is not
 blocked by a results date); no BUY that loses more than the risk budget at its stop; no
 BUY (an ADD included) of a name that is not above its 50-day average with a
-rising 200-day (OWN TREND; `chart-read.py` prints the reading); no
+rising 200-day (OWN TREND; `chart-read.py` prints the reading; a row marked DIP-BUY TRACK is judged on the 200-day alone); no
 BUY of a leveraged long fund, no new stop more than 10% under its entry, and
 every held long more than 10% under its cost sold (or, for an ACTIVE or AGING
 ADD, trimmed); the orders file agrees with the order rows, and a must-fill sale is priced under

@@ -51,6 +51,8 @@ import {
   renderMainAnalystAddLedger,
   loadMainAnalystAddLedger,
   loadOlderIdeaRows,
+  loadMacroRows,
+  renderMacroReads,
 } from "@/lib/ai/content-loader";
 import { buildPortfolioContext } from "@/lib/ai/portfolio-context";
 import { classifyTickers, renderSectorLookup } from "@/lib/market/classify";
@@ -69,6 +71,7 @@ import { loadAllWikis } from "@/lib/ai/wiki";
 import { readAllMemories } from "@/lib/ai/memory-store";
 import { fetchQuotes, describeQuote } from "@/lib/market/quotes";
 import { normalizeIdeas, normalizeTicker } from "@/lib/market/tickers";
+import { MACRO_TOPICS, normalizeMacroTopic } from "@/lib/market/macro-topics";
 import { fetchRecentFilings, renderFilingsBlock } from "@/lib/market/filings";
 import { PRUNABLE_GROUPS } from "@/lib/whatsapp/analysis-groups";
 import { RELEVANCE_INSTRUCTIONS } from "@/lib/ai/relevance";
@@ -267,6 +270,7 @@ export function buildMcpServer(): McpServer {
           renderFilingsBlock(filings, FILINGS_WINDOW_DAYS) +
           renderTextBlock(textRows) +
           renderMediaDigestBlock(mediaRows, { transcriptSince, olderIdeaRows: loadOlderIdeaRows(days) }) +
+          renderMacroReads(loadMacroRows(), textRows) +
           portfolio +
           history
       );
@@ -487,6 +491,90 @@ export function buildMcpServer(): McpServer {
   // A long report does not fit beside 29 other files in one context: its chart
   // and table pages are read as images, and a 100-page note is a whole run.
   // So the batch pass leaves it, and this lists the runs that read it in full.
+  // Digests written before `macro` existed (or by a pass that only looked for trading ideas) carry
+  // the macro content in their transcript. This lists them so the notes can be extracted from the
+  // stored text, without opening the PDF again.
+  server.registerTool(
+    "pending_macro",
+    {
+      title: "Reports whose macro notes are not extracted yet",
+      description:
+        "Digested reports and PDFs of the last days that have no `macro` field yet. For each: id, file, " +
+        "date, source, summary and the stored transcript. Read them and call `save_macro_notes`; no PDF " +
+        "needs opening for this. Newspapers discarded unread are not listed.",
+      inputSchema: {
+        days: z.number().int().min(1).max(60).default(30),
+        olderThanDays: z.number().int().min(0).max(60).default(0).describe("Skip reports shared in the last N days (to split a backfill between agents)"),
+        limit: z.number().int().min(1).max(30).default(12),
+        maxChars: z.number().int().min(1000).max(30000).default(9000).describe("Transcript characters shown per report"),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ days, olderThanDays, limit, maxChars }) => {
+      const newest = Math.floor(Date.now() / 1000) - olderThanDays * 86400;
+      const rows = getContentForAnalysis(days, 8000)
+        .filter((r) => r.media_type === "document" && r.media_digest != null && r.ts <= newest)
+        .filter((r) => {
+          try {
+            const d = JSON.parse(r.media_digest!);
+            return d.macro === undefined && !/^newspaper — discarded/i.test(d.source ?? "");
+          } catch {
+            return false;
+          }
+        })
+        .sort((a, b) => b.ts - a.ts);
+      if (rows.length === 0) return text(`Every digested report of the last ${days} days has its macro notes.`);
+      const shown = rows.slice(0, limit);
+      const body = shown
+        .map((r) => {
+          const d = JSON.parse(r.media_digest!);
+          return (
+            `### id: ${r.id}\nfile: ${r.media_filename ?? "?"} · shared ${fmtTs(r.ts)}\nsource: ${d.source ?? "?"}\n` +
+            `summary: ${d.summary ?? ""}\n${d.levels && d.levels !== "—" ? `levels: ${d.levels}\n` : ""}` +
+            `transcript${d.transcript ? "" : " (none stored)"}:\n${(d.transcript ?? "").slice(0, maxChars)}`
+          );
+        })
+        .join("\n\n");
+      return text(
+        `## ${rows.length} report(s) without macro notes` + (rows.length > shown.length ? ` (showing newest ${shown.length})` : "") +
+          `\n\nTopics (use these names): ${MACRO_TOPICS.join(" | ")}.\n` +
+          "For each report call `save_macro_notes` with its macro reads: one entry per topic the document says something " +
+          "about (house, the report's own date dd-mm, stance for risk assets, the read in one or two lines WITH its numbers, " +
+          "page when the transcript gives it). A stock-only report with no macro content gets an empty list. Copy what the " +
+          "transcript says; do not add your own view.\n\n" + body
+      );
+    }
+  );
+
+  server.registerTool(
+    "save_macro_notes",
+    {
+      title: "Save a report's macro notes",
+      description:
+        "Add `macro` notes to an existing digest without touching the rest of it. Idempotent: it replaces the digest's macro list.",
+      inputSchema: {
+        id: z.string().describe("The report's id from pending_macro"),
+        macro: reportSchema.shape.macro.unwrap(),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: true },
+    },
+    async ({ id, macro }) => {
+      const row = getContentForAnalysis(60, 20000).find((r) => r.id === id);
+      if (!row?.media_digest) return text(`No digested media with id ${id} in the last 60 days.`);
+      let d: Record<string, unknown>;
+      try {
+        d = JSON.parse(row.media_digest);
+      } catch {
+        return text(`The digest of ${id} is not JSON; nothing saved.`);
+      }
+      const kept = macro.filter((n) => normalizeMacroTopic(n.topic));
+      const fixed = kept.map((n) => ({ ...n, topic: normalizeMacroTopic(n.topic)! }));
+      setMediaDigest(id, JSON.stringify({ ...d, macro: fixed }));
+      const dropped = macro.length - kept.length;
+      return text(`Saved ${fixed.length} macro note(s) for ${id}${dropped ? ` (${dropped} dropped: topic not recognised)` : ""}.`);
+    }
+  );
+
   server.registerTool(
     "long_reports",
     {
@@ -527,28 +615,31 @@ export function buildMcpServer(): McpServer {
           `${isMainAnalyst(r.sender) ? "MAIN ANALYST" : r.sender ?? "?"} · ` +
           `${r.media_digest ? "digested, not in full" : "not digested"}\n  notes: ${notes}`;
         const runs: string[] = [];
+        const HAIKU = " [run with model: haiku]";
+        const SONNET = " [run with model: sonnet]";
         if (d.pages_read && fs.existsSync(notes)) {
           // Already read once and assembled: only the pages its digest lists as
           // unread or unopened are left, not the whole report again.
           runs.push(
             `Finish report ${r.id} (${pages} pages). Its digest says: "${d.pages_read.replace(/\s+/g, " ").slice(0, 600)}". ` +
-              `File: ${r.media_path}. Notes: ${notes}.`
+              `File: ${r.media_path}. Notes: ${notes}.${SONNET}`
           );
-        } else if (pages <= REPORT_PART_PAGES + 20) {
-          runs.push(`Read report ${r.id} in full (${pages} pages). File: ${r.media_path}. Notes: ${notes}.`);
         } else {
-          const parts = Math.ceil(pages / REPORT_PART_PAGES);
+          // Parts are read by the cheaper model; the assembly is Sonnet's, because a chart read
+          // wrongly is worse than one read slowly: it opens a sample of the exhibit pages to
+          // check the notes against the images before it saves.
+          const parts = Math.max(1, Math.ceil(pages / REPORT_PART_PAGES));
           for (let k = 0; k < parts; k++) {
             const a = k * REPORT_PART_PAGES + 1;
             const b = Math.min(pages, (k + 1) * REPORT_PART_PAGES);
             runs.push(
               `Read report ${r.id}, pages ${a}-${b} of ${pages} (part ${k + 1} of ${parts}), notes only. ` +
-                `File: ${r.media_path}. Notes: ${notes.replace(/\.md$/, `.part${k + 1}.md`)}.`
+                `File: ${r.media_path}. Notes: ${notes.replace(/\.md$/, `.part${k + 1}.md`)}.${HAIKU}`
             );
           }
           runs.push(
-            `Assemble report ${r.id} (${pages} pages, ${parts} parts) from its notes and save the digest. ` +
-              `File: ${r.media_path}. Notes: ${notes} (parts: ${notes.replace(/\.md$/, ".partN.md")}).`
+            `Assemble report ${r.id} (${pages} pages, ${parts} part${parts > 1 ? "s" : ""}) from its notes and save the digest. ` +
+              `File: ${r.media_path}. Notes: ${notes} (parts: ${notes.replace(/\.md$/, ".partN.md")}).${SONNET}`
           );
         }
         out.push(`${head}\n  runs:\n${runs.map((x) => `    • ${x}`).join("\n")}`);
@@ -560,7 +651,7 @@ export function buildMcpServer(): McpServer {
         return text(`No long report awaiting a full read in the last ${days} days.${skipped}`);
       return text(
         `## ${out.length} long report(s) to read in full${skipped}\n\n${out.join("\n")}\n\n` +
-          "Start one `report-reader` agent per bullet under `runs`, with the bullet as its prompt. " +
+          "Start one `report-reader` agent per bullet under `runs`, with the bullet as its prompt and the model its bracketed note names (haiku reads the parts, sonnet assembles and finishes). " +
           "Different reports, and the parts of one report, can run in parallel; an `Assemble` run " +
           "starts only after every part of its report has finished."
       );

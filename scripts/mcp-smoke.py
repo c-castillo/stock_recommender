@@ -14,7 +14,7 @@ import sys
 from mcpclient import Server
 
 NEEDED = ["corpus_status", "playbook", "portfolio", "main_analyst_adds", "analysis_bundle",
-          "pending_media", "long_reports", "pending_relevance", "save_media_digest", "quotes", "sectors"]
+          "pending_media", "long_reports", "pending_macro", "save_macro_notes", "pending_relevance", "save_media_digest", "quotes", "sectors"]
 
 failed = []
 server = Server()
